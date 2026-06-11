@@ -14,3 +14,6 @@ pub use embedding::Embedding;
 
 mod metric;
 pub use metric::{Metric, Score};
+
+mod neighbor;
+pub use neighbor::Neighbor;
