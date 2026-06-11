@@ -19,7 +19,10 @@ mod tests {
     #[test]
     fn carries_id_and_score() {
         let id = VectorId::new();
-        let neighbor = Neighbor { id, score: Score(0.9) };
+        let neighbor = Neighbor {
+            id,
+            score: Score(0.9),
+        };
         assert_eq!(neighbor.id, id);
         assert!((neighbor.score.0 - 0.9).abs() < 1e-6);
     }

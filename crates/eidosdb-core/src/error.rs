@@ -30,7 +30,13 @@ mod tests {
 
     #[test]
     fn dimension_mismatch_message_is_explicit() {
-        let err = IndexError::DimensionMismatch { expected: 768, got: 384 };
-        assert_eq!(err.to_string(), "dimension mismatch: index expects 768, got 384");
+        let err = IndexError::DimensionMismatch {
+            expected: 768,
+            got: 384,
+        };
+        assert_eq!(
+            err.to_string(),
+            "dimension mismatch: index expects 768, got 384"
+        );
     }
 }

@@ -17,3 +17,6 @@ pub use metric::{Metric, Score};
 
 mod neighbor;
 pub use neighbor::Neighbor;
+
+mod index;
+pub use index::VectorIndex;
