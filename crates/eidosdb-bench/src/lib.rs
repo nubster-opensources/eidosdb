@@ -3,3 +3,4 @@
 pub mod dataset;
 pub mod latency;
 pub mod recall;
+pub mod runner;
