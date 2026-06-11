@@ -75,7 +75,12 @@ impl VectorIndex for FlatIndex {
                 score: self.metric.score(query.as_slice(), embedding.as_slice()),
             })
             .collect();
-        scored.sort_by(|a, b| b.score.0.total_cmp(&a.score.0));
+        scored.sort_by(|a, b| {
+            b.score
+                .0
+                .total_cmp(&a.score.0)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         scored.truncate(k);
         Ok(scored)
     }
@@ -192,6 +197,25 @@ mod tests {
         assert_eq!(results[0].id, target);
     }
 
+    #[test]
+    fn ties_are_broken_by_ascending_id() {
+        let mut index = FlatIndex::new(Metric::DotProduct, Dimension(2));
+        let first = VectorId::new();
+        let second = VectorId::new();
+        // Identical embeddings -> identical score for any query -> a tie.
+        index
+            .insert(first, embedding(&[1.0, 0.0]))
+            .expect("insert first");
+        index
+            .insert(second, embedding(&[1.0, 0.0]))
+            .expect("insert second");
+        let results = index.search(&embedding(&[1.0, 0.0]), 2).expect("search");
+        let lower = first.min(second);
+        let higher = first.max(second);
+        assert_eq!(results[0].id, lower);
+        assert_eq!(results[1].id, higher);
+    }
+
     use proptest::prelude::*;
 
     proptest! {
@@ -203,6 +227,26 @@ mod tests {
             )
         ) {
             let mut index = FlatIndex::new(Metric::DotProduct, Dimension(4));
+            for v in &values {
+                index.insert(VectorId::new(), embedding(v)).expect("insert");
+            }
+            let results = index.search(&embedding(&[1.0, 1.0, 1.0, 1.0]), values.len())
+                .expect("search");
+            for pair in results.windows(2) {
+                prop_assert!(pair[0].score.0 >= pair[1].score.0);
+            }
+        }
+
+        #[test]
+        fn top_k_sorted_descending_for_every_metric(
+            metric_index in 0usize..3,
+            values in proptest::collection::vec(
+                proptest::collection::vec(-1.0_f32..1.0, 4),
+                1..20,
+            )
+        ) {
+            let metric = [Metric::DotProduct, Metric::Cosine, Metric::Euclidean][metric_index];
+            let mut index = FlatIndex::new(metric, Dimension(4));
             for v in &values {
                 index.insert(VectorId::new(), embedding(v)).expect("insert");
             }

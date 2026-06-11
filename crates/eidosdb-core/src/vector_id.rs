@@ -3,7 +3,7 @@
 use uuid::Uuid;
 
 /// Unique identifier of a vector, backed by a time-ordered UUID v7.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VectorId(Uuid);
 
 impl VectorId {
