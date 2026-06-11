@@ -17,3 +17,5 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: test
         run: cargo test --all-features --workspace
+      - name: deny
+        uses: EmbarkStudios/cargo-deny-action@v2
