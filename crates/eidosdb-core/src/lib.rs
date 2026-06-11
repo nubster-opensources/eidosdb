@@ -20,3 +20,6 @@ pub use neighbor::Neighbor;
 
 mod index;
 pub use index::VectorIndex;
+
+mod flat;
+pub use flat::FlatIndex;
