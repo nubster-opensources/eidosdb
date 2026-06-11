@@ -12,7 +12,7 @@ pub enum Metric {
 }
 
 /// A normalized similarity score where a greater value always means a closer match.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Score(pub f32);
 
 impl Metric {
@@ -21,6 +21,7 @@ impl Metric {
     /// Higher is always closer, regardless of the metric.
     #[must_use]
     pub fn score(self, a: &[f32], b: &[f32]) -> Score {
+        debug_assert_eq!(a.len(), b.len(), "score requires equal-length slices");
         match self {
             Metric::Cosine => Score(cosine(a, b)),
             Metric::DotProduct => Score(dot(a, b)),

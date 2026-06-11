@@ -16,12 +16,12 @@ pub enum IndexError {
     /// An id already present in the index was inserted again.
     #[error("duplicate id: {0:?}")]
     DuplicateId(VectorId),
-    /// A query embedding was empty.
-    #[error("query embedding is empty")]
-    EmptyQuery,
     /// An embedding was constructed from an empty vector.
     #[error("embedding is empty")]
     EmptyEmbedding,
+    /// An embedding contained a non-finite component (NaN or infinity).
+    #[error("embedding contains a non-finite component")]
+    NonFiniteComponent,
 }
 
 #[cfg(test)]
