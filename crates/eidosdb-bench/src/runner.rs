@@ -1,7 +1,7 @@
 //! Generic benchmark runner over any `VectorIndex`.
 
 use crate::dataset::Dataset;
-use crate::latency::{summarize, LatencySummary};
+use crate::latency::{LatencySummary, summarize};
 use crate::recall::recall_at_k;
 use eidosdb_core::{FlatIndex, VectorIndex};
 use std::time::Instant;
@@ -22,15 +22,15 @@ pub struct BenchReport {
 ///
 /// `metric` and `dimension` must match how `index` was constructed.
 #[allow(clippy::cast_precision_loss)]
-pub fn run<I: VectorIndex>(
-    mut index: I,
-    dataset: &Dataset,
-    k: usize,
-) -> BenchReport {
+pub fn run<I: VectorIndex>(mut index: I, dataset: &Dataset, k: usize) -> BenchReport {
     let mut oracle = FlatIndex::new(index.metric(), index.dimension());
     for (id, embedding) in &dataset.points {
-        index.insert(*id, embedding.clone()).expect("candidate insert");
-        oracle.insert(*id, embedding.clone()).expect("oracle insert");
+        index
+            .insert(*id, embedding.clone())
+            .expect("candidate insert");
+        oracle
+            .insert(*id, embedding.clone())
+            .expect("oracle insert");
     }
 
     let mut recalls = Vec::with_capacity(dataset.queries.len());

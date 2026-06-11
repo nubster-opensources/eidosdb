@@ -5,7 +5,7 @@ use eidosdb_bench::dataset::generate;
 use eidosdb_bench::runner::run;
 use eidosdb_core::{Dimension, FlatIndex, Metric};
 
-/// Differential benchmark for EidosDB indexes.
+/// Differential benchmark for `EidosDB` indexes.
 #[derive(Parser)]
 #[command(name = "eidosdb-bench")]
 struct Cli {

@@ -17,7 +17,10 @@ pub struct LatencySummary {
 #[must_use]
 pub fn summarize(samples: &[Duration]) -> LatencySummary {
     if samples.is_empty() {
-        return LatencySummary { p50: Duration::ZERO, p99: Duration::ZERO };
+        return LatencySummary {
+            p50: Duration::ZERO,
+            p99: Duration::ZERO,
+        };
     }
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
@@ -40,14 +43,17 @@ fn percentile(sorted: &[Duration], fraction: f64) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::{summarize, LatencySummary};
+    use super::{LatencySummary, summarize};
     use std::time::Duration;
 
     #[test]
     fn empty_is_zeroed() {
         assert_eq!(
             summarize(&[]),
-            LatencySummary { p50: Duration::ZERO, p99: Duration::ZERO }
+            LatencySummary {
+                p50: Duration::ZERO,
+                p99: Duration::ZERO
+            }
         );
     }
 

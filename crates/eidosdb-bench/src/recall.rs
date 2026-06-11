@@ -24,7 +24,10 @@ mod tests {
     use eidosdb_core::{Neighbor, Score, VectorId};
 
     fn neighbor(id: VectorId) -> Neighbor {
-        Neighbor { id, score: Score(1.0) }
+        Neighbor {
+            id,
+            score: Score(1.0),
+        }
     }
 
     #[test]
