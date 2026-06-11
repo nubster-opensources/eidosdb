@@ -11,3 +11,6 @@ pub use error::IndexError;
 
 mod embedding;
 pub use embedding::Embedding;
+
+mod metric;
+pub use metric::{Metric, Score};
