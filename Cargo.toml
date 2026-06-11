@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/eidosdb-core",
+    "crates/eidosdb-bench",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nubster-opensources/eidosdb"
+homepage = "https://github.com/nubster-opensources/eidosdb"
+authors = ["Nubster"]
+keywords = ["vector-database", "ann", "similarity-search", "embeddings", "hnsw"]
+categories = ["database", "data-structures", "algorithms"]
+
+[workspace.dependencies]
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "v7"] }
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+proptest = "1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
