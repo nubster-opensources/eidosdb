@@ -2,3 +2,6 @@
 
 mod dimension;
 pub use dimension::Dimension;
+
+mod vector_id;
+pub use vector_id::VectorId;
