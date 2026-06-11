@@ -13,7 +13,9 @@ pub struct Dataset {
 }
 
 /// Generates `point_count` points and `query_count` queries of `dimension`
-/// components, drawn uniformly from `[-1, 1]`, seeded for reproducibility.
+/// components, drawn uniformly from `[-1, 1]`. The embedding vectors are
+/// reproducible for a given `seed`; the `VectorId`s are freshly generated each
+/// run and are not seeded.
 #[must_use]
 pub fn generate(seed: u64, dimension: usize, point_count: usize, query_count: usize) -> Dataset {
     let mut rng = StdRng::seed_from_u64(seed);
