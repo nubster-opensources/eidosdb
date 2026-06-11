@@ -16,7 +16,11 @@ impl FlatIndex {
     /// Creates an empty index for `dimension`-sized embeddings scored by `metric`.
     #[must_use]
     pub fn new(metric: Metric, dimension: Dimension) -> Self {
-        Self { metric, dimension, points: Vec::new() }
+        Self {
+            metric,
+            dimension,
+            points: Vec::new(),
+        }
     }
 }
 
@@ -97,14 +101,22 @@ mod tests {
     fn insert_rejects_dimension_mismatch() {
         let mut index = FlatIndex::new(Metric::Cosine, Dimension(3));
         let err = index.insert(VectorId::new(), embedding(&[1.0, 0.0]));
-        assert_eq!(err, Err(IndexError::DimensionMismatch { expected: 3, got: 2 }));
+        assert_eq!(
+            err,
+            Err(IndexError::DimensionMismatch {
+                expected: 3,
+                got: 2
+            })
+        );
     }
 
     #[test]
     fn insert_rejects_duplicate_id() {
         let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
         let id = VectorId::new();
-        index.insert(id, embedding(&[1.0, 0.0])).expect("first insert");
+        index
+            .insert(id, embedding(&[1.0, 0.0]))
+            .expect("first insert");
         assert_eq!(
             index.insert(id, embedding(&[0.0, 1.0])),
             Err(IndexError::DuplicateId(id))
@@ -126,7 +138,10 @@ mod tests {
         let index = FlatIndex::new(Metric::Cosine, Dimension(3));
         assert_eq!(
             index.search(&embedding(&[1.0, 0.0]), 1),
-            Err(IndexError::DimensionMismatch { expected: 3, got: 2 })
+            Err(IndexError::DimensionMismatch {
+                expected: 3,
+                got: 2
+            })
         );
     }
 
@@ -135,8 +150,12 @@ mod tests {
         let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
         let near = VectorId::new();
         let far = VectorId::new();
-        index.insert(near, embedding(&[1.0, 0.0])).expect("insert near");
-        index.insert(far, embedding(&[-1.0, 0.0])).expect("insert far");
+        index
+            .insert(near, embedding(&[1.0, 0.0]))
+            .expect("insert near");
+        index
+            .insert(far, embedding(&[-1.0, 0.0]))
+            .expect("insert far");
         let results = index.search(&embedding(&[1.0, 0.0]), 2).expect("search");
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, near);
@@ -147,7 +166,9 @@ mod tests {
     fn search_truncates_to_k() {
         let mut index = FlatIndex::new(Metric::Euclidean, Dimension(1));
         for value in [0.0_f32, 1.0, 2.0, 3.0] {
-            index.insert(VectorId::new(), embedding(&[value])).expect("insert");
+            index
+                .insert(VectorId::new(), embedding(&[value]))
+                .expect("insert");
         }
         let results = index.search(&embedding(&[0.0]), 2).expect("search");
         assert_eq!(results.len(), 2);
@@ -157,11 +178,56 @@ mod tests {
     fn a_vector_is_its_own_nearest_neighbor() {
         let mut index = FlatIndex::new(Metric::Euclidean, Dimension(3));
         let target = VectorId::new();
-        index.insert(target, embedding(&[0.5, 0.5, 0.5])).expect("insert target");
+        index
+            .insert(target, embedding(&[0.5, 0.5, 0.5]))
+            .expect("insert target");
         for _ in 0..10 {
-            index.insert(VectorId::new(), embedding(&[1.0, 1.0, 1.0])).expect("insert noise");
+            index
+                .insert(VectorId::new(), embedding(&[1.0, 1.0, 1.0]))
+                .expect("insert noise");
         }
-        let results = index.search(&embedding(&[0.5, 0.5, 0.5]), 1).expect("search");
+        let results = index
+            .search(&embedding(&[0.5, 0.5, 0.5]), 1)
+            .expect("search");
         assert_eq!(results[0].id, target);
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn top_k_is_sorted_descending(
+            values in proptest::collection::vec(
+                proptest::collection::vec(-10.0_f32..10.0, 4),
+                1..30,
+            )
+        ) {
+            let mut index = FlatIndex::new(Metric::DotProduct, Dimension(4));
+            for v in &values {
+                index.insert(VectorId::new(), embedding(v)).expect("insert");
+            }
+            let results = index.search(&embedding(&[1.0, 1.0, 1.0, 1.0]), values.len())
+                .expect("search");
+            for pair in results.windows(2) {
+                prop_assert!(pair[0].score.0 >= pair[1].score.0);
+            }
+        }
+
+        #[test]
+        #[allow(clippy::cast_precision_loss)]
+        fn search_never_returns_more_than_k(
+            count in 1usize..30,
+            k in 0usize..40,
+        ) {
+            let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+            for i in 0..count {
+                let angle = i as f32;
+                index.insert(VectorId::new(), embedding(&[angle.cos(), angle.sin()]))
+                    .expect("insert");
+            }
+            let results = index.search(&embedding(&[1.0, 0.0]), k).expect("search");
+            prop_assert!(results.len() <= k);
+            prop_assert!(results.len() <= count);
+        }
     }
 }
