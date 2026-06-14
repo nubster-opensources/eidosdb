@@ -111,6 +111,37 @@ impl Catalog {
         Ok(())
     }
 
+    /// Replaces the entire slot table with `slots` and sets the watermark, atomically.
+    pub fn replace_slots(
+        &self,
+        slots: &[(VectorId, u64)],
+        new_record_count: u64,
+    ) -> Result<(), StorageError> {
+        let txn = self.db.begin_write().map_err(catalog_err)?;
+        {
+            // Drop and recreate the slots table to clear it.
+            txn.delete_table(SLOTS).map_err(catalog_err)?;
+            let mut table = txn.open_table(SLOTS).map_err(catalog_err)?;
+            for (id, slot) in slots {
+                let key = id.as_uuid().into_bytes();
+                table.insert(key.as_slice(), *slot).map_err(catalog_err)?;
+            }
+            let mut manifest_table = txn.open_table(MANIFEST).map_err(catalog_err)?;
+            let row = manifest_table
+                .get(MANIFEST_KEY)
+                .map_err(catalog_err)?
+                .ok_or_else(|| StorageError::Corruption("missing manifest row".to_string()))?;
+            let mut manifest = Manifest::from_bytes(row.value())?;
+            drop(row);
+            manifest.record_count = new_record_count;
+            manifest_table
+                .insert(MANIFEST_KEY, manifest.to_bytes().as_slice())
+                .map_err(catalog_err)?;
+        }
+        txn.commit().map_err(catalog_err)?;
+        Ok(())
+    }
+
     /// Removes a slot (tombstone). Returns `true` if the id was present.
     pub fn remove_slot(&self, id: VectorId) -> Result<bool, StorageError> {
         let key = id.as_uuid().into_bytes();

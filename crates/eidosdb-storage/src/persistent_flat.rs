@@ -137,6 +137,56 @@ impl PersistentFlatIndex {
         Ok(())
     }
 
+    fn values_at_storage(&self, slot: u64, mapped: u64) -> Result<&[f32], StorageError> {
+        if slot < mapped {
+            self.segment
+                .record(slot)
+                .ok_or_else(|| StorageError::Corruption(format!("missing mapped slot {slot}")))
+        } else {
+            let index = usize::try_from(slot - mapped)
+                .map_err(|_| StorageError::Corruption("tail index overflow".to_string()))?;
+            self.tail
+                .get(index)
+                .map(|(_, embedding)| embedding.as_slice())
+                .ok_or_else(|| StorageError::Corruption(format!("missing tail slot {slot}")))
+        }
+    }
+
+    /// Rewrites the store keeping only live records, reclaiming dead space.
+    ///
+    /// Rewrites the segment file in place (truncate to header, re-append live
+    /// records) and replaces the `redb` slot table in one transaction. No file
+    /// rename, so it is safe regardless of held file handles.
+    pub fn compact(&mut self) -> Result<(), IndexError> {
+        self.compact_inner().map_err(IndexError::from)
+    }
+
+    fn compact_inner(&mut self) -> Result<(), StorageError> {
+        let mut live = self.catalog.live_slots()?;
+        live.sort_by_key(|(_, slot)| *slot);
+        let mapped = self.segment.mapped_records();
+        let dim = self.dimension.get();
+        let mut flat: Vec<f32> = Vec::with_capacity(live.len() * dim);
+        let mut new_slots: Vec<(VectorId, u64)> = Vec::with_capacity(live.len());
+        for (new_index, (id, slot)) in live.iter().enumerate() {
+            let values = self.values_at_storage(*slot, mapped)?;
+            flat.extend_from_slice(values);
+            let new_slot = u64::try_from(new_index)
+                .map_err(|_| StorageError::Corruption("slot index overflow".to_string()))?;
+            new_slots.push((*id, new_slot));
+        }
+        let count = u64::try_from(new_slots.len())
+            .map_err(|_| StorageError::Corruption("record count overflow".to_string()))?;
+        self.segment.truncate_to_empty()?;
+        self.segment.append(&flat)?;
+        self.segment.remap(count)?;
+        self.catalog.replace_slots(&new_slots, count)?;
+        self.record_count = count;
+        self.tail.clear();
+        self.live_count = new_slots.len();
+        Ok(())
+    }
+
     fn values_at(&self, slot: u64, mapped: u64) -> Result<&[f32], IndexError> {
         if slot < mapped {
             self.segment
@@ -420,6 +470,46 @@ mod tests {
         assert_eq!(index.len(), 1);
         let results = index.search(&embedding(&[1.0, 0.0]), 1).expect("search");
         assert_eq!(results[0].id, id);
+    }
+
+    #[test]
+    fn compact_reclaims_space_and_preserves_live() {
+        let dir = tempdir().expect("tempdir");
+        let keep = VectorId::new();
+        let noise1 = VectorId::new();
+        let noise2 = VectorId::new();
+
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+        index.insert(noise1, embedding(&[0.5, 0.5])).expect("noise1");
+        index.insert(keep, embedding(&[1.0, 0.0])).expect("keep");
+        index.insert(noise2, embedding(&[0.5, 0.5])).expect("noise2");
+        // Checkpoint so all records are mapped (and the test exercises the mmap path).
+        index.checkpoint().expect("checkpoint");
+
+        let seg_path = dir.path().join("vectors.seg");
+        let size_before = std::fs::metadata(&seg_path).expect("meta").len();
+
+        index.remove(noise1).expect("remove noise1");
+        index.remove(noise2).expect("remove noise2");
+        index.compact().expect("compact");
+
+        let size_after = std::fs::metadata(&seg_path).expect("meta after").len();
+        assert!(size_after < size_before, "segment should shrink after compaction");
+
+        assert_eq!(index.len(), 1);
+        let results = index.search(&embedding(&[1.0, 0.0]), 10).expect("search");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, keep);
+
+        // Reopen: persisted state must be consistent.
+        drop(index);
+        let reopened =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
+        assert_eq!(reopened.len(), 1);
+        let results2 = reopened.search(&embedding(&[1.0, 0.0]), 10).expect("search after reopen");
+        assert_eq!(results2.len(), 1);
+        assert_eq!(results2[0].id, keep);
     }
 
     #[test]

@@ -111,6 +111,15 @@ impl Segment {
         Ok(())
     }
 
+    /// Drops the map and truncates the file back to an empty, header-only segment.
+    pub fn truncate_to_empty(&mut self) -> Result<(), StorageError> {
+        self.mmap = None;
+        self.mapped_records = 0;
+        self.file.set_len(HEADER_LEN as u64)?;
+        self.file.sync_all()?;
+        Ok(())
+    }
+
     /// Returns the record at `slot` as a zero-copy `&[f32]`, if mapped.
     #[must_use]
     pub fn record(&self, slot: u64) -> Option<&[f32]> {
