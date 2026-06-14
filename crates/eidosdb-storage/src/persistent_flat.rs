@@ -129,6 +129,14 @@ impl PersistentFlatIndex {
         Ok(())
     }
 
+    /// Remaps the segment so all durable records are visible through the map and
+    /// clears the RAM tail. Durability is unaffected (inserts already fsync).
+    pub fn checkpoint(&mut self) -> Result<(), IndexError> {
+        self.segment.remap(self.record_count).map_err(IndexError::from)?;
+        self.tail.clear();
+        Ok(())
+    }
+
     fn values_at(&self, slot: u64, mapped: u64) -> Result<&[f32], IndexError> {
         if slot < mapped {
             self.segment
@@ -341,6 +349,23 @@ mod tests {
             persistent.search(&query, 4).expect("p"),
             oracle.search(&query, 4).expect("o")
         );
+    }
+
+    #[test]
+    fn checkpoint_keeps_results_and_clears_tail() {
+        let dir = tempdir().expect("tempdir");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+        let a = VectorId::new();
+        index.insert(a, embedding(&[1.0, 0.0])).expect("insert");
+        index.checkpoint().expect("checkpoint");
+        // After checkpoint, the same vector is served from the mmap, not the tail.
+        let results = index.search(&embedding(&[1.0, 0.0]), 1).expect("search");
+        assert_eq!(results[0].id, a);
+        // A further insert still works (slot beyond the remapped region).
+        let b = VectorId::new();
+        index.insert(b, embedding(&[0.9, 0.1])).expect("insert b");
+        assert_eq!(index.search(&embedding(&[1.0, 0.0]), 2).expect("search").len(), 2);
     }
 
     #[test]
