@@ -1,9 +1,18 @@
-//! Benchmark CLI: runs the Flat baseline over a synthetic dataset and prints a report.
+//! Benchmark CLI: runs vector index backends over a synthetic dataset and prints a report.
 
 use clap::Parser;
 use eidosdb_bench::dataset::generate;
 use eidosdb_bench::runner::run;
 use eidosdb_core::{Dimension, FlatIndex, Metric};
+
+/// Index backend to benchmark.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum Backend {
+    /// In-memory exact Flat index.
+    Flat,
+    /// Durable disk-backed Flat index.
+    Persistent,
+}
 
 /// Output format for benchmark results.
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -34,17 +43,36 @@ struct Cli {
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Table)]
     format: OutputFormat,
+    /// Index backend to benchmark.
+    #[arg(long, value_enum, default_value_t = Backend::Flat)]
+    backend: Backend,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let dataset = generate(cli.seed, cli.dimension, cli.points, cli.queries);
-    let index = FlatIndex::new(Metric::Cosine, Dimension(cli.dimension));
-    let report = run(index, &dataset, cli.k);
+
+    let (report, label) = match cli.backend {
+        Backend::Flat => {
+            let index = FlatIndex::new(Metric::Cosine, Dimension(cli.dimension));
+            let report = run(index, &dataset, cli.k);
+            (report, "FlatIndex (Cosine)")
+        }
+        Backend::Persistent => {
+            let temp = tempfile::tempdir()?;
+            let index = eidosdb_storage::PersistentFlatIndex::open(
+                temp.path(),
+                Metric::Cosine,
+                Dimension(cli.dimension),
+            )?;
+            let report = run(index, &dataset, cli.k);
+            (report, "PersistentFlatIndex (Cosine)")
+        }
+    };
 
     match cli.format {
         OutputFormat::Table => {
-            println!("index       : FlatIndex (Cosine)");
+            println!("index       : {label}");
             println!("points      : {}", cli.points);
             println!("queries     : {}", cli.queries);
             println!("k           : {}", cli.k);
@@ -54,7 +82,7 @@ fn main() {
         }
         OutputFormat::Json => {
             let value = serde_json::json!({
-                "index": "FlatIndex (Cosine)",
+                "index": label,
                 "seed": cli.seed,
                 "dimension": cli.dimension,
                 "points": cli.points,
@@ -67,4 +95,6 @@ fn main() {
             println!("{value:#}");
         }
     }
+
+    Ok(())
 }

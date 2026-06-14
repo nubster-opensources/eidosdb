@@ -22,6 +22,9 @@ pub enum IndexError {
     /// An embedding contained a non-finite component (NaN or infinity).
     #[error("embedding contains a non-finite component")]
     NonFiniteComponent,
+    /// A persistence backend operation failed.
+    #[error("storage backend error: {0}")]
+    Backend(String),
 }
 
 #[cfg(test)]
@@ -38,5 +41,11 @@ mod tests {
             err.to_string(),
             "dimension mismatch: index expects 768, got 384"
         );
+    }
+
+    #[test]
+    fn backend_message_is_explicit() {
+        let err = IndexError::Backend("disk full".to_string());
+        assert_eq!(err.to_string(), "storage backend error: disk full");
     }
 }
