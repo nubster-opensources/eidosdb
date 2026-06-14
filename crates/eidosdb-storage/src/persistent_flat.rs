@@ -91,6 +91,44 @@ impl PersistentFlatIndex {
 }
 
 impl PersistentFlatIndex {
+    /// Inserts many vectors with a single fsync and a single catalog commit.
+    ///
+    /// Validates every item first (dimension and duplicate id) so the batch is
+    /// all-or-nothing: nothing is written if any item is invalid.
+    pub fn insert_batch(&mut self, items: Vec<(VectorId, Embedding)>) -> Result<(), IndexError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        // Validate up front.
+        let mut seen = std::collections::HashSet::new();
+        for (id, embedding) in &items {
+            if embedding.dimension() != self.dimension {
+                return Err(IndexError::DimensionMismatch {
+                    expected: self.dimension.get(),
+                    got: embedding.dimension().get(),
+                });
+            }
+            if !seen.insert(*id) || self.catalog.contains(*id)? {
+                return Err(IndexError::DuplicateId(*id));
+            }
+        }
+        // Append all records in one flat write, then commit slots.
+        let mut flat: Vec<f32> = Vec::with_capacity(items.len() * self.dimension.get());
+        let mut slots: Vec<(VectorId, u64)> = Vec::with_capacity(items.len());
+        let mut next = self.record_count;
+        for (id, embedding) in &items {
+            flat.extend_from_slice(embedding.as_slice());
+            slots.push((*id, next));
+            next += 1;
+        }
+        self.segment.append(&flat)?;
+        self.catalog.insert_slots(&slots, next)?;
+        self.record_count = next;
+        self.live_count += items.len();
+        self.tail.extend(items);
+        Ok(())
+    }
+
     fn values_at(&self, slot: u64, mapped: u64) -> Result<&[f32], IndexError> {
         if slot < mapped {
             self.segment
@@ -302,6 +340,44 @@ mod tests {
         assert_eq!(
             persistent.search(&query, 4).expect("p"),
             oracle.search(&query, 4).expect("o")
+        );
+    }
+
+    #[test]
+    fn insert_batch_matches_individual_inserts() {
+        let dir_a = tempdir().expect("a");
+        let dir_b = tempdir().expect("b");
+        let items: Vec<(VectorId, Embedding)> = (0_u8..5)
+            .map(|i| (VectorId::new(), embedding(&[f32::from(i), 1.0])))
+            .collect();
+
+        let mut batched =
+            PersistentFlatIndex::open(dir_a.path(), Metric::Cosine, Dimension(2)).expect("a");
+        batched.insert_batch(items.clone()).expect("batch");
+
+        let mut single =
+            PersistentFlatIndex::open(dir_b.path(), Metric::Cosine, Dimension(2)).expect("b");
+        for (id, e) in items {
+            single.insert(id, e).expect("single");
+        }
+
+        let query = embedding(&[2.0, 1.0]);
+        assert_eq!(batched.len(), single.len());
+        assert_eq!(
+            batched.search(&query, 5).expect("ba"),
+            single.search(&query, 5).expect("si")
+        );
+    }
+
+    #[test]
+    fn insert_batch_rejects_dimension_mismatch() {
+        let dir = tempdir().expect("tempdir");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+        let items = vec![(VectorId::new(), embedding(&[1.0, 2.0, 3.0]))];
+        assert_eq!(
+            index.insert_batch(items),
+            Err(IndexError::DimensionMismatch { expected: 2, got: 3 })
         );
     }
 
