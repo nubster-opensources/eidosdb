@@ -304,4 +304,45 @@ mod tests {
             oracle.search(&query, 4).expect("o")
         );
     }
+
+    #[test]
+    fn reopen_preserves_data() {
+        let dir = tempdir().expect("tempdir");
+        let id = VectorId::new();
+        {
+            let mut index =
+                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            index.insert(id, embedding(&[1.0, 0.0])).expect("insert");
+        }
+        let index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
+        assert_eq!(index.len(), 1);
+        let results = index.search(&embedding(&[1.0, 0.0]), 1).expect("search");
+        assert_eq!(results[0].id, id);
+    }
+
+    #[test]
+    fn reopen_after_orphan_tail_is_consistent() {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        let dir = tempdir().expect("tempdir");
+        {
+            let mut index =
+                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            index.insert(VectorId::new(), embedding(&[1.0, 0.0])).expect("insert");
+        }
+        // Simulate a crash mid-append: extra bytes past the committed watermark.
+        {
+            let mut file = OpenOptions::new()
+                .append(true)
+                .open(dir.path().join("vectors.seg"))
+                .expect("open seg");
+            file.write_all(&[0xAB; 8]).expect("write orphan bytes");
+        }
+        let index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
+        assert_eq!(index.len(), 1, "watermark ignores orphan bytes");
+        assert_eq!(index.search(&embedding(&[1.0, 0.0]), 10).expect("search").len(), 1);
+    }
 }
