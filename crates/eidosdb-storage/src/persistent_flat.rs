@@ -598,4 +598,44 @@ mod tests {
         assert_eq!(index.len(), 1, "watermark ignores orphan bytes");
         assert_eq!(index.search(&embedding(&[1.0, 0.0]), 10).expect("search").len(), 1);
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn persistent_equals_oracle_under_inserts_and_removes(
+            vectors in proptest::collection::vec(
+                proptest::collection::vec(-5.0_f32..5.0, 3),
+                1..25,
+            ),
+            remove_every in 2usize..5,
+        ) {
+            use eidosdb_core::FlatIndex;
+            let dir = tempdir().expect("tempdir");
+            let mut persistent =
+                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
+            let mut oracle = FlatIndex::new(Metric::Cosine, Dimension(3));
+
+            let mut ids = Vec::new();
+            for (i, v) in vectors.iter().enumerate() {
+                let id = VectorId::new();
+                let e = embedding(v);
+                persistent.insert(id, e.clone()).expect("p insert");
+                oracle.insert(id, e).expect("o insert");
+                ids.push(id);
+                if i % remove_every == 0 {
+                    persistent.remove(id).expect("p remove");
+                    oracle.remove(id).expect("o remove");
+                }
+            }
+            // Exercise the remap path mid-stream.
+            persistent.checkpoint().expect("checkpoint");
+
+            let query = embedding(&[1.0, 1.0, 1.0]);
+            prop_assert_eq!(
+                persistent.search(&query, ids.len()).expect("p search"),
+                oracle.search(&query, ids.len()).expect("o search")
+            );
+        }
+    }
 }
