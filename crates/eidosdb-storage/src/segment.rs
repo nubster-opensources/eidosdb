@@ -25,8 +25,6 @@ pub struct Segment {
     mapped_records: u64,
 }
 
-// methods wired across subsequent storage tasks
-#[allow(dead_code)]
 impl Segment {
     /// Byte stride of one record.
     #[must_use]

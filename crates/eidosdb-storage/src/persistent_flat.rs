@@ -140,8 +140,12 @@ impl VectorIndex for PersistentFlatIndex {
         Ok(())
     }
 
-    fn remove(&mut self, _id: VectorId) -> Result<bool, IndexError> {
-        Err(IndexError::Backend("remove not implemented yet".to_string()))
+    fn remove(&mut self, id: VectorId) -> Result<bool, IndexError> {
+        let existed = self.catalog.remove_slot(id).map_err(IndexError::from)?;
+        if existed {
+            self.live_count -= 1;
+        }
+        Ok(existed)
     }
 
     fn search(&self, query: &Embedding, k: usize) -> Result<Vec<Neighbor>, IndexError> {
@@ -257,6 +261,23 @@ mod tests {
             index.search(&embedding(&[1.0, 0.0]), 1),
             Err(IndexError::DimensionMismatch { expected: 3, got: 2 })
         );
+    }
+
+    #[test]
+    fn remove_tombstones_and_excludes_from_search() {
+        let dir = tempdir().expect("tempdir");
+        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
+            .expect("open");
+        let keep = VectorId::new();
+        let drop = VectorId::new();
+        index.insert(keep, embedding(&[1.0, 0.0])).expect("keep");
+        index.insert(drop, embedding(&[1.0, 0.0])).expect("drop");
+        assert_eq!(index.remove(drop), Ok(true));
+        assert_eq!(index.remove(drop), Ok(false));
+        assert_eq!(index.len(), 1);
+        let results = index.search(&embedding(&[1.0, 0.0]), 10).expect("search");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, keep);
     }
 
     #[test]
