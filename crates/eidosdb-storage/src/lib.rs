@@ -13,3 +13,6 @@
 
 mod error;
 pub use error::StorageError;
+
+#[allow(dead_code)]
+mod manifest;
