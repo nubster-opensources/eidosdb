@@ -12,9 +12,9 @@ const SEGMENT_FILE: &str = "vectors.seg";
 const CATALOG_FILE: &str = "meta.redb";
 
 /// A durable exact index: redb metadata plus a memory-mapped vector segment.
-// fields wired across subsequent storage tasks
-#[allow(dead_code)]
 pub struct PersistentFlatIndex {
+    // read by compact and snapshot
+    #[allow(dead_code)]
     dir: PathBuf,
     catalog: Catalog,
     segment: Segment,
@@ -103,8 +103,24 @@ impl VectorIndex for PersistentFlatIndex {
         self.live_count
     }
 
-    fn insert(&mut self, _id: VectorId, _embedding: Embedding) -> Result<(), IndexError> {
-        Err(IndexError::Backend("insert not implemented yet".to_string()))
+    fn insert(&mut self, id: VectorId, embedding: Embedding) -> Result<(), IndexError> {
+        if embedding.dimension() != self.dimension {
+            return Err(IndexError::DimensionMismatch {
+                expected: self.dimension.get(),
+                got: embedding.dimension().get(),
+            });
+        }
+        if self.catalog.contains(id)? {
+            return Err(IndexError::DuplicateId(id));
+        }
+        let slot = self.record_count;
+        // Data before pointer: durable bytes first, then commit the slot.
+        self.segment.append(embedding.as_slice())?;
+        self.catalog.insert_slot(id, slot, slot + 1)?;
+        self.record_count = slot + 1;
+        self.live_count += 1;
+        self.tail.push((id, embedding));
+        Ok(())
     }
 
     fn remove(&mut self, _id: VectorId) -> Result<bool, IndexError> {
@@ -119,8 +135,12 @@ impl VectorIndex for PersistentFlatIndex {
 #[cfg(test)]
 mod tests {
     use super::PersistentFlatIndex;
-    use eidosdb_core::{Dimension, Metric, VectorIndex};
+    use eidosdb_core::{Dimension, Embedding, IndexError, Metric, VectorId, VectorIndex};
     use tempfile::tempdir;
+
+    fn embedding(values: &[f32]) -> Embedding {
+        Embedding::new(values.to_vec()).expect("non-empty")
+    }
 
     #[test]
     fn new_index_is_empty() {
@@ -138,5 +158,38 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("create");
         assert!(PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(4)).is_err());
+    }
+
+    #[test]
+    fn insert_increases_len() {
+        let dir = tempdir().expect("tempdir");
+        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
+            .expect("open");
+        index.insert(VectorId::new(), embedding(&[1.0, 0.0])).expect("insert");
+        assert_eq!(index.len(), 1);
+    }
+
+    #[test]
+    fn insert_rejects_dimension_mismatch() {
+        let dir = tempdir().expect("tempdir");
+        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3))
+            .expect("open");
+        assert_eq!(
+            index.insert(VectorId::new(), embedding(&[1.0, 0.0])),
+            Err(IndexError::DimensionMismatch { expected: 3, got: 2 })
+        );
+    }
+
+    #[test]
+    fn insert_rejects_duplicate_id() {
+        let dir = tempdir().expect("tempdir");
+        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
+            .expect("open");
+        let id = VectorId::new();
+        index.insert(id, embedding(&[1.0, 0.0])).expect("first");
+        assert_eq!(
+            index.insert(id, embedding(&[0.0, 1.0])),
+            Err(IndexError::DuplicateId(id))
+        );
     }
 }
