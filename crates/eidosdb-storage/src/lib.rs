@@ -19,3 +19,5 @@ pub use error::StorageError;
 mod manifest;
 #[allow(dead_code)]
 mod segment;
+#[allow(dead_code)]
+mod catalog;
