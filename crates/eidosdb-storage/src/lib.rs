@@ -14,5 +14,8 @@
 mod error;
 pub use error::StorageError;
 
+// These modules are consumed once the persistent index lands; allow until then.
 #[allow(dead_code)]
 mod manifest;
+#[allow(dead_code)]
+mod segment;
