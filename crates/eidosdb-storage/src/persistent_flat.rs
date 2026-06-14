@@ -90,6 +90,23 @@ impl PersistentFlatIndex {
     }
 }
 
+impl PersistentFlatIndex {
+    fn values_at(&self, slot: u64, mapped: u64) -> Result<&[f32], IndexError> {
+        if slot < mapped {
+            self.segment
+                .record(slot)
+                .ok_or_else(|| IndexError::Backend(format!("missing mapped slot {slot}")))
+        } else {
+            let index = usize::try_from(slot - mapped)
+                .map_err(|_| IndexError::Backend("tail index overflow".to_string()))?;
+            self.tail
+                .get(index)
+                .map(|(_, emb)| emb.as_slice())
+                .ok_or_else(|| IndexError::Backend(format!("missing tail slot {slot}")))
+        }
+    }
+}
+
 impl VectorIndex for PersistentFlatIndex {
     fn metric(&self) -> Metric {
         self.metric
@@ -127,8 +144,31 @@ impl VectorIndex for PersistentFlatIndex {
         Err(IndexError::Backend("remove not implemented yet".to_string()))
     }
 
-    fn search(&self, _query: &Embedding, _k: usize) -> Result<Vec<Neighbor>, IndexError> {
-        Err(IndexError::Backend("search not implemented yet".to_string()))
+    fn search(&self, query: &Embedding, k: usize) -> Result<Vec<Neighbor>, IndexError> {
+        if query.dimension() != self.dimension {
+            return Err(IndexError::DimensionMismatch {
+                expected: self.dimension.get(),
+                got: query.dimension().get(),
+            });
+        }
+        let live = self.catalog.live_slots().map_err(IndexError::from)?;
+        let mapped = self.segment.mapped_records();
+        let mut scored: Vec<Neighbor> = Vec::with_capacity(live.len());
+        for (id, slot) in live {
+            let values = self.values_at(slot, mapped)?;
+            scored.push(Neighbor {
+                id,
+                score: self.metric.score(query.as_slice(), values),
+            });
+        }
+        scored.sort_by(|a, b| {
+            b.score
+                .0
+                .total_cmp(&a.score.0)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        scored.truncate(k);
+        Ok(scored)
     }
 }
 
@@ -190,6 +230,57 @@ mod tests {
         assert_eq!(
             index.insert(id, embedding(&[0.0, 1.0])),
             Err(IndexError::DuplicateId(id))
+        );
+    }
+
+    #[test]
+    fn search_returns_closest_first() {
+        let dir = tempdir().expect("tempdir");
+        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
+            .expect("open");
+        let near = VectorId::new();
+        let far = VectorId::new();
+        index.insert(near, embedding(&[1.0, 0.0])).expect("near");
+        index.insert(far, embedding(&[-1.0, 0.0])).expect("far");
+        let results = index.search(&embedding(&[1.0, 0.0]), 2).expect("search");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, near);
+        assert_eq!(results[1].id, far);
+    }
+
+    #[test]
+    fn search_rejects_dimension_mismatch() {
+        let dir = tempdir().expect("tempdir");
+        let index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3))
+            .expect("open");
+        assert_eq!(
+            index.search(&embedding(&[1.0, 0.0]), 1),
+            Err(IndexError::DimensionMismatch { expected: 3, got: 2 })
+        );
+    }
+
+    #[test]
+    fn matches_flat_oracle() {
+        use eidosdb_core::FlatIndex;
+        let dir = tempdir().expect("tempdir");
+        let mut persistent =
+            PersistentFlatIndex::open(dir.path(), Metric::Euclidean, Dimension(3)).expect("open");
+        let mut oracle = FlatIndex::new(Metric::Euclidean, Dimension(3));
+        let vectors = [
+            [0.1, 0.2, 0.3],
+            [0.9, 0.8, 0.7],
+            [0.4, 0.4, 0.4],
+            [0.0, 1.0, 0.0],
+        ];
+        for v in vectors {
+            let id = VectorId::new();
+            persistent.insert(id, embedding(&v)).expect("persistent insert");
+            oracle.insert(id, embedding(&v)).expect("oracle insert");
+        }
+        let query = embedding(&[0.3, 0.3, 0.3]);
+        assert_eq!(
+            persistent.search(&query, 4).expect("p"),
+            oracle.search(&query, 4).expect("o")
         );
     }
 }
