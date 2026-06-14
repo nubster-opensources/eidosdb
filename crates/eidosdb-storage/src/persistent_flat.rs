@@ -13,8 +13,6 @@ const CATALOG_FILE: &str = "meta.redb";
 
 /// A durable exact index: redb metadata plus a memory-mapped vector segment.
 pub struct PersistentFlatIndex {
-    // read by compact and snapshot
-    #[allow(dead_code)]
     dir: PathBuf,
     catalog: Catalog,
     segment: Segment,
@@ -150,6 +148,46 @@ impl PersistentFlatIndex {
                 .map(|(_, embedding)| embedding.as_slice())
                 .ok_or_else(|| StorageError::Corruption(format!("missing tail slot {slot}")))
         }
+    }
+
+    /// Writes a consistent, self-contained copy of the store into `dest`.
+    ///
+    /// `dest` is a directory reopenable by [`PersistentFlatIndex::open`]. Because
+    /// every insert is already durable (fsync + commit), rebuilding the catalog
+    /// and copying the segment up to the watermark yields a consistent image.
+    pub fn snapshot(&self, dest: &Path) -> Result<(), IndexError> {
+        self.snapshot_inner(dest).map_err(IndexError::from)
+    }
+
+    fn snapshot_inner(&self, dest: &Path) -> Result<(), StorageError> {
+        std::fs::create_dir_all(dest)?;
+        // The live catalog file is locked by redb while open, so it cannot be byte
+        // copied. Rebuild an equivalent catalog at the destination from the live
+        // set instead, using redb's own API.
+        let manifest = Manifest {
+            format_version: FORMAT_VERSION,
+            dimension: u32::try_from(self.dimension.get())
+                .map_err(|_| StorageError::FormatMismatch("dimension exceeds u32".to_string()))?,
+            metric: self.metric,
+            record_count: self.record_count,
+        };
+        let dest_catalog = Catalog::create(&dest.join(CATALOG_FILE), &manifest)?;
+        let live = self.catalog.live_slots()?;
+        dest_catalog.replace_slots(&live, self.record_count)?;
+        drop(dest_catalog);
+
+        let stride = u64::try_from(self.dimension.get())
+            .map_err(|_| StorageError::Corruption("dimension overflow".to_string()))?
+            * 4;
+        let valid_len = crate::segment::HEADER_LEN as u64 + self.record_count * stride;
+        let bytes = std::fs::read(self.dir.join(SEGMENT_FILE))?;
+        let end = usize::try_from(valid_len)
+            .map_err(|_| StorageError::Corruption("segment length overflow".to_string()))?;
+        let slice = bytes
+            .get(..end)
+            .ok_or_else(|| StorageError::Corruption("segment shorter than watermark".to_string()))?;
+        std::fs::write(dest.join(SEGMENT_FILE), slice)?;
+        Ok(())
     }
 
     /// Rewrites the store keeping only live records, reclaiming dead space.
@@ -510,6 +548,30 @@ mod tests {
         let results2 = reopened.search(&embedding(&[1.0, 0.0]), 10).expect("search after reopen");
         assert_eq!(results2.len(), 1);
         assert_eq!(results2[0].id, keep);
+    }
+
+    #[test]
+    fn snapshot_is_reopenable_and_identical() {
+        let dir = tempdir().expect("tempdir");
+        let snap = tempdir().expect("snap");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+        let ids: Vec<VectorId> = (0..6).map(|_| VectorId::new()).collect();
+        for (i, id) in ids.iter().enumerate() {
+            let v = f32::from(u8::try_from(i).expect("small"));
+            index.insert(*id, embedding(&[v, 1.0])).expect("insert");
+        }
+        index.checkpoint().expect("checkpoint");
+        index.snapshot(snap.path()).expect("snapshot");
+
+        let restored =
+            PersistentFlatIndex::open(snap.path(), Metric::Cosine, Dimension(2)).expect("reopen snap");
+        let query = embedding(&[3.0, 1.0]);
+        assert_eq!(restored.len(), index.len());
+        assert_eq!(
+            restored.search(&query, 6).expect("r"),
+            index.search(&query, 6).expect("i")
+        );
     }
 
     #[test]
