@@ -39,7 +39,10 @@ mod tests {
     #[test]
     fn corruption_maps_to_backend() {
         let err: IndexError = StorageError::Corruption("bad magic".to_string()).into();
-        assert_eq!(err, IndexError::Backend("corrupt store: bad magic".to_string()));
+        assert_eq!(
+            err,
+            IndexError::Backend("corrupt store: bad magic".to_string())
+        );
     }
 
     #[test]

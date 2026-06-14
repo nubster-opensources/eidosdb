@@ -46,7 +46,12 @@ impl Manifest {
         let dimension = read_u32(&bytes[4..8])?;
         let metric = metric_from_u8(bytes[8])?;
         let record_count = read_u64(&bytes[9..17])?;
-        Ok(Self { format_version, dimension, metric, record_count })
+        Ok(Self {
+            format_version,
+            dimension,
+            metric,
+            record_count,
+        })
     }
 }
 
@@ -80,13 +85,15 @@ pub fn metric_from_u8(value: u8) -> Result<Metric, StorageError> {
         0 => Ok(Metric::Cosine),
         1 => Ok(Metric::DotProduct),
         2 => Ok(Metric::Euclidean),
-        other => Err(StorageError::Corruption(format!("unknown metric byte {other}"))),
+        other => Err(StorageError::Corruption(format!(
+            "unknown metric byte {other}"
+        ))),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{metric_from_u8, Manifest, FORMAT_VERSION};
+    use super::{FORMAT_VERSION, Manifest, metric_from_u8};
     use crate::error::StorageError;
     use eidosdb_core::Metric;
 
@@ -126,6 +133,9 @@ mod tests {
 
     #[test]
     fn rejects_unknown_metric_byte() {
-        assert!(matches!(metric_from_u8(9), Err(StorageError::Corruption(_))));
+        assert!(matches!(
+            metric_from_u8(9),
+            Err(StorageError::Corruption(_))
+        ));
     }
 }

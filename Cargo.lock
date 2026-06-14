@@ -155,8 +155,10 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "eidosdb-core",
+ "eidosdb-storage",
  "rand 0.8.6",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

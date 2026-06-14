@@ -3,7 +3,7 @@
 
 use crate::catalog::Catalog;
 use crate::error::StorageError;
-use crate::manifest::{Manifest, FORMAT_VERSION};
+use crate::manifest::{FORMAT_VERSION, Manifest};
 use crate::segment::Segment;
 use eidosdb_core::{Dimension, Embedding, IndexError, Metric, Neighbor, VectorId, VectorIndex};
 use std::path::{Path, PathBuf};
@@ -130,7 +130,9 @@ impl PersistentFlatIndex {
     /// Remaps the segment so all durable records are visible through the map and
     /// clears the RAM tail. Durability is unaffected (inserts already fsync).
     pub fn checkpoint(&mut self) -> Result<(), IndexError> {
-        self.segment.remap(self.record_count).map_err(IndexError::from)?;
+        self.segment
+            .remap(self.record_count)
+            .map_err(IndexError::from)?;
         self.tail.clear();
         Ok(())
     }
@@ -183,9 +185,9 @@ impl PersistentFlatIndex {
         let bytes = std::fs::read(self.dir.join(SEGMENT_FILE))?;
         let end = usize::try_from(valid_len)
             .map_err(|_| StorageError::Corruption("segment length overflow".to_string()))?;
-        let slice = bytes
-            .get(..end)
-            .ok_or_else(|| StorageError::Corruption("segment shorter than watermark".to_string()))?;
+        let slice = bytes.get(..end).ok_or_else(|| {
+            StorageError::Corruption("segment shorter than watermark".to_string())
+        })?;
         std::fs::write(dest.join(SEGMENT_FILE), slice)?;
         Ok(())
     }
@@ -323,8 +325,8 @@ mod tests {
     #[test]
     fn new_index_is_empty() {
         let dir = tempdir().expect("tempdir");
-        let index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3))
-            .expect("open");
+        let index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
         assert!(index.is_empty());
         assert_eq!(index.len(), 0);
         assert_eq!(index.metric(), Metric::Cosine);
@@ -341,28 +343,33 @@ mod tests {
     #[test]
     fn insert_increases_len() {
         let dir = tempdir().expect("tempdir");
-        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
-            .expect("open");
-        index.insert(VectorId::new(), embedding(&[1.0, 0.0])).expect("insert");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+        index
+            .insert(VectorId::new(), embedding(&[1.0, 0.0]))
+            .expect("insert");
         assert_eq!(index.len(), 1);
     }
 
     #[test]
     fn insert_rejects_dimension_mismatch() {
         let dir = tempdir().expect("tempdir");
-        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3))
-            .expect("open");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
         assert_eq!(
             index.insert(VectorId::new(), embedding(&[1.0, 0.0])),
-            Err(IndexError::DimensionMismatch { expected: 3, got: 2 })
+            Err(IndexError::DimensionMismatch {
+                expected: 3,
+                got: 2
+            })
         );
     }
 
     #[test]
     fn insert_rejects_duplicate_id() {
         let dir = tempdir().expect("tempdir");
-        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
-            .expect("open");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
         let id = VectorId::new();
         index.insert(id, embedding(&[1.0, 0.0])).expect("first");
         assert_eq!(
@@ -374,8 +381,8 @@ mod tests {
     #[test]
     fn search_returns_closest_first() {
         let dir = tempdir().expect("tempdir");
-        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
-            .expect("open");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
         let near = VectorId::new();
         let far = VectorId::new();
         index.insert(near, embedding(&[1.0, 0.0])).expect("near");
@@ -389,19 +396,22 @@ mod tests {
     #[test]
     fn search_rejects_dimension_mismatch() {
         let dir = tempdir().expect("tempdir");
-        let index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3))
-            .expect("open");
+        let index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
         assert_eq!(
             index.search(&embedding(&[1.0, 0.0]), 1),
-            Err(IndexError::DimensionMismatch { expected: 3, got: 2 })
+            Err(IndexError::DimensionMismatch {
+                expected: 3,
+                got: 2
+            })
         );
     }
 
     #[test]
     fn remove_tombstones_and_excludes_from_search() {
         let dir = tempdir().expect("tempdir");
-        let mut index = PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2))
-            .expect("open");
+        let mut index =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
         let keep = VectorId::new();
         let drop = VectorId::new();
         index.insert(keep, embedding(&[1.0, 0.0])).expect("keep");
@@ -429,7 +439,9 @@ mod tests {
         ];
         for v in vectors {
             let id = VectorId::new();
-            persistent.insert(id, embedding(&v)).expect("persistent insert");
+            persistent
+                .insert(id, embedding(&v))
+                .expect("persistent insert");
             oracle.insert(id, embedding(&v)).expect("oracle insert");
         }
         let query = embedding(&[0.3, 0.3, 0.3]);
@@ -453,7 +465,13 @@ mod tests {
         // A further insert still works (slot beyond the remapped region).
         let b = VectorId::new();
         index.insert(b, embedding(&[0.9, 0.1])).expect("insert b");
-        assert_eq!(index.search(&embedding(&[1.0, 0.0]), 2).expect("search").len(), 2);
+        assert_eq!(
+            index
+                .search(&embedding(&[1.0, 0.0]), 2)
+                .expect("search")
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -490,7 +508,10 @@ mod tests {
         let items = vec![(VectorId::new(), embedding(&[1.0, 2.0, 3.0]))];
         assert_eq!(
             index.insert_batch(items),
-            Err(IndexError::DimensionMismatch { expected: 2, got: 3 })
+            Err(IndexError::DimensionMismatch {
+                expected: 2,
+                got: 3
+            })
         );
     }
 
@@ -519,9 +540,13 @@ mod tests {
 
         let mut index =
             PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
-        index.insert(noise1, embedding(&[0.5, 0.5])).expect("noise1");
+        index
+            .insert(noise1, embedding(&[0.5, 0.5]))
+            .expect("noise1");
         index.insert(keep, embedding(&[1.0, 0.0])).expect("keep");
-        index.insert(noise2, embedding(&[0.5, 0.5])).expect("noise2");
+        index
+            .insert(noise2, embedding(&[0.5, 0.5]))
+            .expect("noise2");
         // Checkpoint so all records are mapped (and the test exercises the mmap path).
         index.checkpoint().expect("checkpoint");
 
@@ -533,7 +558,10 @@ mod tests {
         index.compact().expect("compact");
 
         let size_after = std::fs::metadata(&seg_path).expect("meta after").len();
-        assert!(size_after < size_before, "segment should shrink after compaction");
+        assert!(
+            size_after < size_before,
+            "segment should shrink after compaction"
+        );
 
         assert_eq!(index.len(), 1);
         let results = index.search(&embedding(&[1.0, 0.0]), 10).expect("search");
@@ -545,7 +573,9 @@ mod tests {
         let reopened =
             PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
         assert_eq!(reopened.len(), 1);
-        let results2 = reopened.search(&embedding(&[1.0, 0.0]), 10).expect("search after reopen");
+        let results2 = reopened
+            .search(&embedding(&[1.0, 0.0]), 10)
+            .expect("search after reopen");
         assert_eq!(results2.len(), 1);
         assert_eq!(results2[0].id, keep);
     }
@@ -564,8 +594,8 @@ mod tests {
         index.checkpoint().expect("checkpoint");
         index.snapshot(snap.path()).expect("snapshot");
 
-        let restored =
-            PersistentFlatIndex::open(snap.path(), Metric::Cosine, Dimension(2)).expect("reopen snap");
+        let restored = PersistentFlatIndex::open(snap.path(), Metric::Cosine, Dimension(2))
+            .expect("reopen snap");
         let query = embedding(&[3.0, 1.0]);
         assert_eq!(restored.len(), index.len());
         assert_eq!(
@@ -583,7 +613,9 @@ mod tests {
         {
             let mut index =
                 PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
-            index.insert(VectorId::new(), embedding(&[1.0, 0.0])).expect("insert");
+            index
+                .insert(VectorId::new(), embedding(&[1.0, 0.0]))
+                .expect("insert");
         }
         // Simulate a crash mid-append: extra bytes past the committed watermark.
         {
@@ -596,7 +628,13 @@ mod tests {
         let index =
             PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
         assert_eq!(index.len(), 1, "watermark ignores orphan bytes");
-        assert_eq!(index.search(&embedding(&[1.0, 0.0]), 10).expect("search").len(), 1);
+        assert_eq!(
+            index
+                .search(&embedding(&[1.0, 0.0]), 10)
+                .expect("search")
+                .len(),
+            1
+        );
     }
 
     use proptest::prelude::*;

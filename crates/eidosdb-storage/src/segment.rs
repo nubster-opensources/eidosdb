@@ -5,7 +5,7 @@
 //! `unsafe` to a single read-only `Mmap::map`.
 
 use crate::error::StorageError;
-use crate::manifest::{metric_from_u8, metric_to_u8, FORMAT_VERSION};
+use crate::manifest::{FORMAT_VERSION, metric_from_u8, metric_to_u8};
 use eidosdb_core::Metric;
 use memmap2::Mmap;
 use std::fs::{File, OpenOptions};
@@ -47,7 +47,12 @@ impl Segment {
             .open(path)?;
         write_header(&mut file, metric, dimension)?;
         file.sync_all()?;
-        let mut segment = Self { file, dimension, mmap: None, mapped_records: 0 };
+        let mut segment = Self {
+            file,
+            dimension,
+            mmap: None,
+            mapped_records: 0,
+        };
         segment.remap(0)?;
         Ok(segment)
     }
@@ -62,7 +67,12 @@ impl Segment {
     ) -> Result<Self, StorageError> {
         let mut file = OpenOptions::new().read(true).write(true).open(path)?;
         validate_header(&mut file, metric, dimension)?;
-        let mut segment = Self { file, dimension, mmap: None, mapped_records: 0 };
+        let mut segment = Self {
+            file,
+            dimension,
+            mmap: None,
+            mapped_records: 0,
+        };
         let valid_len = HEADER_LEN as u64 + record_count * segment.stride();
         segment.file.set_len(valid_len)?;
         segment.file.sync_all()?;
@@ -81,7 +91,8 @@ impl Segment {
             )));
         }
         self.file.seek(SeekFrom::End(0))?;
-        self.file.write_all(bytemuck::cast_slice::<f32, u8>(values))?;
+        self.file
+            .write_all(bytemuck::cast_slice::<f32, u8>(values))?;
         self.file.flush()?;
         self.file.sync_all()?;
         Ok(())
@@ -178,7 +189,9 @@ fn validate_header(file: &mut File, metric: Metric, dimension: usize) -> Result<
         )));
     }
     if metric_from_u8(header[16])? != metric {
-        return Err(StorageError::FormatMismatch("segment metric mismatch".to_string()));
+        return Err(StorageError::FormatMismatch(
+            "segment metric mismatch".to_string(),
+        ));
     }
     Ok(())
 }
@@ -203,7 +216,9 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("vectors.seg");
         let mut segment = Segment::create(&path, Metric::Cosine, 2).expect("create");
-        segment.append(&[1.0, 2.0, 3.0, 4.0]).expect("append two records");
+        segment
+            .append(&[1.0, 2.0, 3.0, 4.0])
+            .expect("append two records");
         assert_eq!(segment.record(0), None, "not visible before remap");
         segment.remap(2).expect("remap");
         assert_eq!(segment.record(0), Some(&[1.0, 2.0][..]));

@@ -14,9 +14,9 @@
 mod error;
 pub use error::StorageError;
 
+mod catalog;
 mod manifest;
 mod segment;
-mod catalog;
 
 mod persistent_flat;
 pub use persistent_flat::PersistentFlatIndex;

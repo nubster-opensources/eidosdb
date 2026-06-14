@@ -179,7 +179,7 @@ fn catalog_err<E: std::fmt::Display>(error: E) -> StorageError {
 #[cfg(test)]
 mod tests {
     use super::Catalog;
-    use crate::manifest::{Manifest, FORMAT_VERSION};
+    use crate::manifest::{FORMAT_VERSION, Manifest};
     use eidosdb_core::{Metric, VectorId};
     use tempfile::tempdir;
 
@@ -223,7 +223,9 @@ mod tests {
         let catalog = Catalog::create(&path, &manifest()).expect("create");
         let a = VectorId::new();
         let b = VectorId::new();
-        catalog.insert_slots(&[(a, 0), (b, 1)], 2).expect("batch insert");
+        catalog
+            .insert_slots(&[(a, 0), (b, 1)], 2)
+            .expect("batch insert");
         let mut pairs = catalog.live_slots().expect("live");
         pairs.sort_by_key(|(_, slot)| *slot);
         assert_eq!(pairs.len(), 2);
