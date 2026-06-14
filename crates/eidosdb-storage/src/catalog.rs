@@ -16,6 +16,8 @@ pub struct Catalog {
     db: Database,
 }
 
+// methods wired across subsequent storage tasks
+#[allow(dead_code)]
 impl Catalog {
     /// Creates a new catalog with the given manifest and an empty slot table.
     pub fn create(path: &Path, manifest: &Manifest) -> Result<Self, StorageError> {
