@@ -16,3 +16,6 @@ pub use payload::Payload;
 
 mod filter;
 pub use filter::{CompiledFilter, Filter};
+
+mod payload_store;
+pub use payload_store::{InMemoryPayloadStore, PayloadStore};
