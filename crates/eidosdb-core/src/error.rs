@@ -55,6 +55,9 @@ mod tests {
     #[test]
     fn unsupported_metric_message_is_explicit() {
         let err = IndexError::UnsupportedMetric(crate::Metric::Cosine);
-        assert_eq!(err.to_string(), "metric not supported by this index: Cosine");
+        assert_eq!(
+            err.to_string(),
+            "metric not supported by this index: Cosine"
+        );
     }
 }

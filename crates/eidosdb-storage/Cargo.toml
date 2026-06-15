@@ -24,11 +24,13 @@ missing_panics_doc = "allow"
 
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
+eidosdb-query = { path = "../eidosdb-query" }
 thiserror.workspace = true
 redb.workspace = true
 uuid.workspace = true
 memmap2.workspace = true
 bytemuck.workspace = true
+postcard.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

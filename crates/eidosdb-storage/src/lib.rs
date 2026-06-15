@@ -20,3 +20,6 @@ mod segment;
 
 mod persistent_flat;
 pub use persistent_flat::PersistentFlatIndex;
+
+mod persistent_payload;
+pub use persistent_payload::PersistentPayloadStore;
