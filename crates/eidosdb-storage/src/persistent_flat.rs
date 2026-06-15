@@ -284,7 +284,17 @@ impl VectorIndex for PersistentFlatIndex {
         Ok(existed)
     }
 
-    fn search(&self, query: &Embedding, k: usize) -> Result<Vec<Neighbor>, IndexError> {
+    fn supported_metrics(&self) -> &[Metric] {
+        &[Metric::Cosine, Metric::DotProduct, Metric::Euclidean]
+    }
+
+    fn search_filtered(
+        &self,
+        query: &Embedding,
+        k: usize,
+        metric: Metric,
+        is_admissible: &dyn Fn(&VectorId) -> bool,
+    ) -> Result<Vec<Neighbor>, IndexError> {
         if query.dimension() != self.dimension {
             return Err(IndexError::DimensionMismatch {
                 expected: self.dimension.get(),
@@ -295,10 +305,13 @@ impl VectorIndex for PersistentFlatIndex {
         let mapped = self.segment.mapped_records();
         let mut scored: Vec<Neighbor> = Vec::with_capacity(live.len());
         for (id, slot) in live {
+            if !is_admissible(&id) {
+                continue;
+            }
             let values = self.values_at(slot, mapped)?;
             scored.push(Neighbor {
                 id,
-                score: self.metric.score(query.as_slice(), values),
+                score: metric.score(query.as_slice(), values),
             });
         }
         scored.sort_by(|a, b| {
@@ -635,6 +648,34 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn search_filtered_matches_flat_oracle_with_predicate() {
+        use eidosdb_core::FlatIndex;
+        let dir = tempdir().expect("tempdir");
+        let mut persistent =
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+        let mut oracle = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut kept = Vec::new();
+        for i in 0..6 {
+            let id = VectorId::new();
+            let v = f32::from(u8::try_from(i).expect("small"));
+            persistent.insert(id, embedding(&[v, 1.0])).expect("p");
+            oracle.insert(id, embedding(&[v, 1.0])).expect("o");
+            if i % 2 == 0 {
+                kept.push(id);
+            }
+        }
+        let allow = move |id: &VectorId| kept.contains(id);
+        let query = embedding(&[2.0, 1.0]);
+        let got = persistent
+            .search_filtered(&query, 6, Metric::Cosine, &allow)
+            .expect("p search");
+        let want = oracle
+            .search_filtered(&query, 6, Metric::Cosine, &allow)
+            .expect("o search");
+        assert_eq!(got, want);
     }
 
     use proptest::prelude::*;
