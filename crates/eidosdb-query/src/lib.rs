@@ -13,3 +13,6 @@ pub use error::{PayloadError, QueryError};
 
 mod payload;
 pub use payload::Payload;
+
+mod filter;
+pub use filter::{CompiledFilter, Filter};
