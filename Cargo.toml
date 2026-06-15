@@ -21,7 +21,7 @@ categories = ["database", "data-structures", "algorithms"]
 
 [workspace.dependencies]
 thiserror = "2"
-postcard = { version = "1", features = ["alloc"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", features = ["v7"] }
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
