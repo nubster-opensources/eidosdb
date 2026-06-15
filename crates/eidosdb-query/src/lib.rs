@@ -7,3 +7,6 @@
 
 mod value;
 pub use value::{FieldValue, Value};
+
+mod error;
+pub use error::{PayloadError, QueryError};
