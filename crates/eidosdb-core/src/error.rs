@@ -1,6 +1,6 @@
 //! Errors returned by vector index operations.
 
-use crate::VectorId;
+use crate::{Metric, VectorId};
 
 /// Failure modes of a `VectorIndex` operation.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -25,6 +25,9 @@ pub enum IndexError {
     /// A persistence backend operation failed.
     #[error("storage backend error: {0}")]
     Backend(String),
+    /// A query requested a metric the index does not support.
+    #[error("metric not supported by this index: {0:?}")]
+    UnsupportedMetric(Metric),
 }
 
 #[cfg(test)]
@@ -47,5 +50,11 @@ mod tests {
     fn backend_message_is_explicit() {
         let err = IndexError::Backend("disk full".to_string());
         assert_eq!(err.to_string(), "storage backend error: disk full");
+    }
+
+    #[test]
+    fn unsupported_metric_message_is_explicit() {
+        let err = IndexError::UnsupportedMetric(crate::Metric::Cosine);
+        assert_eq!(err.to_string(), "metric not supported by this index: Cosine");
     }
 }
