@@ -19,3 +19,6 @@ pub use filter::{CompiledFilter, Filter};
 
 mod payload_store;
 pub use payload_store::{InMemoryPayloadStore, PayloadStore};
+
+mod collection;
+pub use collection::{Collection, SearchHit, SearchQuery};
