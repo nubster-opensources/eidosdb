@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn field_value_round_trips_through_postcard_shape() {
+    fn field_value_equality_distinguishes_variants() {
         let scalar = FieldValue::Scalar(Value::Integer(7));
         let array = FieldValue::Array(vec![Value::Text("x".into()), Value::Bool(true)]);
         assert_eq!(scalar, FieldValue::Scalar(Value::Integer(7)));

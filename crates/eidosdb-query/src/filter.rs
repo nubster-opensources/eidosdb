@@ -10,7 +10,13 @@ use std::cmp::Ordering;
 /// tested only through [`Filter::Exists`] (negate it for "is null").
 #[derive(Clone, Debug, PartialEq)]
 pub enum Filter {
-    /// Field is a scalar equal to the value.
+    /// Field is a scalar structurally equal to the value.
+    ///
+    /// Equality is by [`Value`] variant: `Eq(field, Value::Float(3.0))` does not
+    /// match a field stored as `Value::Integer(3)`. This differs from the ordered
+    /// comparisons ([`Filter::Gte`] and friends), which project `Integer` and
+    /// `Float` onto a common scale before comparing. The strictness is intentional
+    /// so a typed schema can keep integers and floats distinct under equality.
     Eq(String, Value),
     /// Field is a present scalar not equal to the value.
     Ne(String, Value),
@@ -23,6 +29,9 @@ pub enum Filter {
     /// Field is a scalar ordered greater than or equal to the value.
     Gte(String, Value),
     /// Field is a scalar present in the list.
+    ///
+    /// Membership uses the same by-variant equality as [`Filter::Eq`]: an
+    /// `Integer` field is not matched by a `Float` entry of equal magnitude.
     In(String, Vec<Value>),
     /// Field is an array containing the value.
     Contains(String, Value),
