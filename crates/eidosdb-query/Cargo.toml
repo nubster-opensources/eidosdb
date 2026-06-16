@@ -1,6 +1,6 @@
 [package]
-name = "eidosdb-storage"
-description = "Durable storage for EidosDB: redb metadata plus memory-mapped vector segments."
+name = "eidosdb-query"
+description = "Query layer for EidosDB: typed payloads, filtering, and metric-aware search over a VectorIndex."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [lints.rust]
-unsafe_code = "allow"
+unsafe_code = "deny"
 missing_docs = "warn"
 
 [lints.clippy]
@@ -24,14 +24,8 @@ missing_panics_doc = "allow"
 
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
-eidosdb-query = { path = "../eidosdb-query" }
 thiserror.workspace = true
-redb.workspace = true
-uuid.workspace = true
-memmap2.workspace = true
-bytemuck.workspace = true
-postcard.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 proptest.workspace = true

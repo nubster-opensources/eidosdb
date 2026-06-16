@@ -60,7 +60,17 @@ impl VectorIndex for FlatIndex {
         }
     }
 
-    fn search(&self, query: &Embedding, k: usize) -> Result<Vec<Neighbor>, IndexError> {
+    fn supported_metrics(&self) -> &[Metric] {
+        &[Metric::Cosine, Metric::DotProduct, Metric::Euclidean]
+    }
+
+    fn search_filtered(
+        &self,
+        query: &Embedding,
+        k: usize,
+        metric: Metric,
+        is_admissible: &dyn Fn(&VectorId) -> bool,
+    ) -> Result<Vec<Neighbor>, IndexError> {
         if query.dimension() != self.dimension {
             return Err(IndexError::DimensionMismatch {
                 expected: self.dimension.get(),
@@ -70,9 +80,10 @@ impl VectorIndex for FlatIndex {
         let mut scored: Vec<Neighbor> = self
             .points
             .iter()
+            .filter(|(id, _)| is_admissible(id))
             .map(|(id, embedding)| Neighbor {
                 id: *id,
-                score: self.metric.score(query.as_slice(), embedding.as_slice()),
+                score: metric.score(query.as_slice(), embedding.as_slice()),
             })
             .collect();
         scored.sort_by(|a, b| {
@@ -214,6 +225,52 @@ mod tests {
         let higher = first.max(second);
         assert_eq!(results[0].id, lower);
         assert_eq!(results[1].id, higher);
+    }
+
+    #[test]
+    fn supported_metrics_lists_all_three() {
+        let index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let metrics = index.supported_metrics();
+        assert!(metrics.contains(&Metric::Cosine));
+        assert!(metrics.contains(&Metric::DotProduct));
+        assert!(metrics.contains(&Metric::Euclidean));
+        assert_eq!(metrics.len(), 3);
+    }
+
+    #[test]
+    fn search_filtered_excludes_non_admissible_ids() {
+        let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let kept = VectorId::new();
+        let blocked = VectorId::new();
+        index.insert(kept, embedding(&[1.0, 0.0])).expect("kept");
+        index
+            .insert(blocked, embedding(&[1.0, 0.0]))
+            .expect("blocked");
+        let results = index
+            .search_filtered(&embedding(&[1.0, 0.0]), 10, Metric::Cosine, &|id| {
+                *id == kept
+            })
+            .expect("search");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, kept);
+    }
+
+    #[test]
+    fn search_filtered_honors_requested_metric() {
+        let mut cosine_index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut euclidean_oracle = FlatIndex::new(Metric::Euclidean, Dimension(2));
+        let points = [[0.1_f32, 0.9], [0.8, 0.2], [0.5, 0.5]];
+        for p in points {
+            let id = VectorId::new();
+            cosine_index.insert(id, embedding(&p)).expect("c");
+            euclidean_oracle.insert(id, embedding(&p)).expect("e");
+        }
+        let query = embedding(&[0.4, 0.6]);
+        let filtered = cosine_index
+            .search_filtered(&query, 3, Metric::Euclidean, &|_| true)
+            .expect("filtered");
+        let oracle = euclidean_oracle.search(&query, 3).expect("oracle");
+        assert_eq!(filtered, oracle);
     }
 
     use proptest::prelude::*;
