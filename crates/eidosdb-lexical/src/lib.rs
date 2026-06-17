@@ -20,3 +20,6 @@ pub use index::LexicalIndex;
 
 mod in_memory;
 pub use in_memory::InMemoryLexicalIndex;
+
+mod fusion;
+pub use fusion::fuse_rrf;
