@@ -1,9 +1,11 @@
 //! Query layer for `EidosDB`: typed payloads, a filter AST, and a `Collection`
-//! that orchestrates payload-filtered, metric-aware search over a `VectorIndex`.
+//! that orchestrates payload-filtered, metric-aware search over a `VectorIndex`
+//! and a `LexicalIndex`, fusing the two channels with reciprocal rank fusion.
 //!
 //! The geometric core stays pure: this crate produces an admissibility predicate
-//! from a filter and hands it to `VectorIndex::search_filtered`. Payload semantics
-//! never leak into the index.
+//! from a filter and hands it to `VectorIndex::search_filtered` and
+//! `LexicalIndex::search_text_filtered`. Payload semantics never leak into either
+//! index.
 
 mod value;
 pub use value::{FieldValue, Value};
@@ -22,3 +24,6 @@ pub use payload_store::{InMemoryPayloadStore, PayloadStore};
 
 mod collection;
 pub use collection::{Collection, SearchHit, SearchQuery};
+
+mod hybrid;
+pub use hybrid::{DEFAULT_OVERFETCH_FACTOR, DEFAULT_RRF_K, HybridQuery};

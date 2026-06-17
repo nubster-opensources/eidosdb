@@ -1,6 +1,6 @@
 [package]
-name = "eidosdb-query"
-description = "Query layer for EidosDB: typed payloads, filtering, and metric-aware search over a VectorIndex."
+name = "eidosdb-lexical"
+description = "Lexical BM25 retrieval and RRF fusion for EidosDB."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -24,9 +24,8 @@ missing_panics_doc = "allow"
 
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
-eidosdb-lexical = { path = "../eidosdb-lexical" }
 thiserror.workspace = true
-serde.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+uuid.workspace = true

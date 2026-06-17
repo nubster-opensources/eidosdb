@@ -23,3 +23,6 @@ pub use persistent_flat::PersistentFlatIndex;
 
 mod persistent_payload;
 pub use persistent_payload::PersistentPayloadStore;
+
+mod persistent_lexical;
+pub use persistent_lexical::PersistentLexicalIndex;
