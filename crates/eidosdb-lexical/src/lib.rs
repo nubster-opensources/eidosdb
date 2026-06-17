@@ -6,3 +6,6 @@
 
 mod error;
 pub use error::LexicalError;
+
+mod document;
+pub use document::Document;
