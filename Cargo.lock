@@ -180,10 +180,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eidosdb-lexical"
+version = "0.0.1"
+dependencies = [
+ "eidosdb-core",
+ "proptest",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "eidosdb-query"
 version = "0.0.1"
 dependencies = [
  "eidosdb-core",
+ "eidosdb-lexical",
  "proptest",
  "serde",
  "thiserror",
