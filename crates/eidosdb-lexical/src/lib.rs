@@ -3,3 +3,6 @@
 //!
 //! This crate is a peer of the geometric core: it knows ids and text, never
 //! vectors or payloads. `fuse_rrf` knows only ranked ids.
+
+mod error;
+pub use error::LexicalError;
