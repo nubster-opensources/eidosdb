@@ -17,3 +17,6 @@ pub mod bm25;
 
 mod index;
 pub use index::LexicalIndex;
+
+mod in_memory;
+pub use in_memory::InMemoryLexicalIndex;
