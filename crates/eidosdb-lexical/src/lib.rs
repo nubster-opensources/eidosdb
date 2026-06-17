@@ -9,3 +9,6 @@ pub use error::LexicalError;
 
 mod document;
 pub use document::Document;
+
+mod analyzer;
+pub use analyzer::tokenize;
