@@ -22,3 +22,6 @@ pub use payload_store::{InMemoryPayloadStore, PayloadStore};
 
 mod collection;
 pub use collection::{Collection, SearchHit, SearchQuery};
+
+mod hybrid;
+pub use hybrid::{DEFAULT_OVERFETCH_FACTOR, DEFAULT_RRF_K, HybridQuery};
