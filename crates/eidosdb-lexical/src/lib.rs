@@ -12,3 +12,5 @@ pub use document::Document;
 
 mod analyzer;
 pub use analyzer::tokenize;
+
+pub mod bm25;
