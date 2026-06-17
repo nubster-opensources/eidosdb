@@ -206,11 +206,13 @@ version = "0.0.1"
 dependencies = [
  "bytemuck",
  "eidosdb-core",
+ "eidosdb-lexical",
  "eidosdb-query",
  "memmap2",
  "postcard",
  "proptest",
  "redb",
+ "serde",
  "tempfile",
  "thiserror",
  "uuid",
