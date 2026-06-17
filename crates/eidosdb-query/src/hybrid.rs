@@ -80,6 +80,8 @@ impl<I: VectorIndex, L: LexicalIndex, P: PayloadStore> Collection<I, L, P> {
         let mut hits = Vec::new();
         for (id, score) in ranked.into_iter().take(query.k) {
             let payload = self.payloads.get(&id)?;
+            // Scores feed ranking and display only; the f64 to f32 narrowing
+            // loses precision well below any tie that matters here.
             #[allow(clippy::cast_possible_truncation)]
             hits.push(SearchHit {
                 id,
@@ -142,6 +144,16 @@ mod tests {
             .expect("search");
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].id, near);
+        // Single channel must thread the native cosine score, not an RRF rank
+        // score. The aligned vector scores 1.0; the opposite one scores below 0.
+        assert!(
+            (hits[0].score.0 - 1.0).abs() < 1e-6,
+            "native cosine score is threaded through, not RRF"
+        );
+        assert!(
+            hits[1].score.0 < 0.0,
+            "opposite vector keeps its negative cosine"
+        );
     }
 
     #[test]
