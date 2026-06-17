@@ -14,3 +14,6 @@ mod analyzer;
 pub use analyzer::tokenize;
 
 pub mod bm25;
+
+mod index;
+pub use index::LexicalIndex;
