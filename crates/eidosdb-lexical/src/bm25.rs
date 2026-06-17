@@ -30,7 +30,7 @@ pub fn term_score(term_frequency: u32, doc_length: u32, average_doc_length: f64,
 
 #[cfg(test)]
 mod tests {
-    use super::{B, K1, idf, term_score};
+    use super::{idf, term_score};
 
     #[test]
     fn idf_is_non_negative_even_for_ubiquitous_terms() {
@@ -44,17 +44,13 @@ mod tests {
     fn term_score_matches_hand_computed_value() {
         // Corpus: docA = "the quick brown fox" (len 4), docB = "the lazy dog" (len 3).
         // N = 2, avgdl = 3.5. Query term "fox" appears only in docA, so df = 1.
-        let n = 2usize;
-        let df = 1usize;
-        let avgdl = 3.5_f64;
-        // IDF(fox) = ln(1 + (2 - 1 + 0.5) / (1 + 0.5)) = ln(2).
-        let expected_idf = (2.0_f64).ln();
-        assert!((idf(n, df) - expected_idf).abs() < 1e-12);
-        // term_score with tf = 1, len = 4 recomputed longhand from the spec.
-        let f = 1.0_f64;
-        let len = 4.0_f64;
-        let expected = expected_idf * (f * (K1 + 1.0)) / (f + K1 * (1.0 - B + B * len / avgdl));
-        assert!((term_score(1, 4, avgdl, idf(n, df)) - expected).abs() < 1e-12);
+        // Values below are computed by hand from spec section 7, independent of the
+        // module constants, so a drift in K1/B/term_score breaks this test:
+        //   IDF = ln(1 + (2 - 1 + 0.5) / (1 + 0.5)) = ln(2) = 0.6931471805599453
+        //   term_score = ln(2) * (1 * 2.2) / (1 + 1.2 * (0.25 + 0.75 * 4 / 3.5))
+        //              = ln(2) * 2.2 / 2.3285714285714287 = 0.6548752503
+        assert!((idf(2, 1) - std::f64::consts::LN_2).abs() < 1e-12);
+        assert!((term_score(1, 4, 3.5, idf(2, 1)) - 0.654_875_3).abs() < 1e-6);
     }
 
     #[test]

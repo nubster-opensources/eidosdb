@@ -117,7 +117,7 @@ impl LexicalIndex for InMemoryLexicalIndex {
 #[cfg(test)]
 mod tests {
     use super::InMemoryLexicalIndex;
-    use crate::{Document, LexicalIndex, bm25};
+    use crate::{Document, LexicalIndex};
     use eidosdb_core::VectorId;
 
     fn doc(text: &str) -> Document {
@@ -134,9 +134,9 @@ mod tests {
         let hits = index.search_text("fox", 10);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, a);
-        // Hand-computed: N = 2, avgdl = 3.5, df(fox) = 1, tf = 1, len = 4.
-        let expected = bm25::term_score(1, 4, 3.5, bm25::idf(2, 1));
-        assert!((hits[0].1 - expected).abs() < 1e-12);
+        // Hand-computed literal from spec section 7 (see bm25 unit tests):
+        // ln(2) * 2.2 / 2.3285714285714287 = 0.6548752503.
+        assert!((hits[0].1 - 0.654_875_3).abs() < 1e-6);
     }
 
     #[test]
