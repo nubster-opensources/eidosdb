@@ -1,8 +1,10 @@
-//! `Collection`: binds a `VectorIndex` to a `PayloadStore` and runs filtered,
-//! metric-aware search by pre-filtering ids before the geometric scan.
+//! `Collection`: binds a `VectorIndex`, a `LexicalIndex`, and a `PayloadStore`
+//! into one queryable unit that runs filtered, metric-aware search by
+//! pre-filtering ids before the geometric scan.
 
 use crate::{Filter, Payload, PayloadStore, QueryError};
 use eidosdb_core::{Embedding, Metric, Score, VectorId, VectorIndex};
+use eidosdb_lexical::{Document, LexicalIndex};
 use std::collections::HashSet;
 
 /// A search request against a `Collection`.
@@ -27,16 +29,21 @@ pub struct SearchHit {
     pub payload: Option<Payload>,
 }
 
-/// Binds a geometric index and a payload store into one queryable unit.
-pub struct Collection<I, P> {
-    index: I,
-    payloads: P,
+/// Binds a geometric index, a lexical index, and a payload store into one unit.
+pub struct Collection<I, L, P> {
+    pub(crate) index: I,
+    pub(crate) lexical: L,
+    pub(crate) payloads: P,
 }
 
-impl<I: VectorIndex, P: PayloadStore> Collection<I, P> {
-    /// Creates a collection over `index` and `payloads`.
-    pub fn new(index: I, payloads: P) -> Self {
-        Self { index, payloads }
+impl<I: VectorIndex, L: LexicalIndex, P: PayloadStore> Collection<I, L, P> {
+    /// Creates a collection over `index`, `lexical`, and `payloads`.
+    pub fn new(index: I, lexical: L, payloads: P) -> Self {
+        Self {
+            index,
+            lexical,
+            payloads,
+        }
     }
 
     /// Number of stored vectors.
@@ -49,16 +56,21 @@ impl<I: VectorIndex, P: PayloadStore> Collection<I, P> {
         self.index.is_empty()
     }
 
-    /// Inserts or overwrites a vector and its optional payload.
+    /// Inserts or overwrites a vector, its optional document, and its optional
+    /// payload. A `None` document removes any prior lexical entry for `id`.
     pub fn upsert(
         &mut self,
         id: VectorId,
         embedding: Embedding,
+        document: Option<&Document>,
         payload: Option<Payload>,
     ) -> Result<(), QueryError> {
-        // Remove any prior vector so re-inserting the same id is allowed.
         let _ = self.index.remove(id)?;
         self.index.insert(id, embedding)?;
+        match document {
+            Some(document) => self.lexical.insert(id, document)?,
+            None => self.lexical.remove(&id)?,
+        }
         match payload {
             Some(payload) => self.payloads.set(id, payload)?,
             None => {
@@ -68,9 +80,11 @@ impl<I: VectorIndex, P: PayloadStore> Collection<I, P> {
         Ok(())
     }
 
-    /// Deletes a vector and its payload, returning whether the vector was present.
+    /// Deletes a vector, its document, and its payload, returning whether the
+    /// vector was present.
     pub fn delete(&mut self, id: &VectorId) -> Result<bool, QueryError> {
         let removed = self.index.remove(*id)?;
+        self.lexical.remove(id)?;
         self.payloads.remove(id)?;
         Ok(removed)
     }
@@ -112,6 +126,7 @@ mod tests {
     use super::{Collection, SearchQuery};
     use crate::{FieldValue, Filter, InMemoryPayloadStore, Payload, Value};
     use eidosdb_core::{Dimension, Embedding, FlatIndex, Metric, VectorId};
+    use eidosdb_lexical::InMemoryLexicalIndex;
     use std::collections::BTreeMap;
 
     fn embedding(values: &[f32]) -> Embedding {
@@ -127,9 +142,10 @@ mod tests {
         Payload::new(map).expect("valid")
     }
 
-    fn collection() -> Collection<FlatIndex, InMemoryPayloadStore> {
+    fn collection() -> Collection<FlatIndex, InMemoryLexicalIndex, InMemoryPayloadStore> {
         Collection::new(
             FlatIndex::new(Metric::Cosine, Dimension(2)),
+            InMemoryLexicalIndex::new(),
             InMemoryPayloadStore::new(),
         )
     }
@@ -139,8 +155,10 @@ mod tests {
         let mut c = collection();
         let near = VectorId::new();
         let far = VectorId::new();
-        c.upsert(near, embedding(&[1.0, 0.0]), None).expect("near");
-        c.upsert(far, embedding(&[-1.0, 0.0]), None).expect("far");
+        c.upsert(near, embedding(&[1.0, 0.0]), None, None)
+            .expect("near");
+        c.upsert(far, embedding(&[-1.0, 0.0]), None, None)
+            .expect("far");
         let hits = c
             .search(&SearchQuery {
                 embedding: embedding(&[1.0, 0.0]),
@@ -158,9 +176,9 @@ mod tests {
         let mut c = collection();
         let wiki = VectorId::new();
         let blog = VectorId::new();
-        c.upsert(wiki, embedding(&[1.0, 0.0]), Some(payload("wiki")))
+        c.upsert(wiki, embedding(&[1.0, 0.0]), None, Some(payload("wiki")))
             .expect("wiki");
-        c.upsert(blog, embedding(&[1.0, 0.0]), Some(payload("blog")))
+        c.upsert(blog, embedding(&[1.0, 0.0]), None, Some(payload("blog")))
             .expect("blog");
         let hits = c
             .search(&SearchQuery {
@@ -179,9 +197,9 @@ mod tests {
     fn upsert_overwrites_vector_and_payload() {
         let mut c = collection();
         let id = VectorId::new();
-        c.upsert(id, embedding(&[1.0, 0.0]), Some(payload("old")))
+        c.upsert(id, embedding(&[1.0, 0.0]), None, Some(payload("old")))
             .expect("first");
-        c.upsert(id, embedding(&[0.0, 1.0]), Some(payload("new")))
+        c.upsert(id, embedding(&[0.0, 1.0]), None, Some(payload("new")))
             .expect("second");
         assert_eq!(c.len(), 1);
         let hits = c
@@ -199,7 +217,7 @@ mod tests {
     fn delete_removes_from_both_stores() {
         let mut c = collection();
         let id = VectorId::new();
-        c.upsert(id, embedding(&[1.0, 0.0]), Some(payload("x")))
+        c.upsert(id, embedding(&[1.0, 0.0]), None, Some(payload("x")))
             .expect("insert");
         assert!(c.delete(&id).expect("delete"));
         assert!(!c.delete(&id).expect("delete again"));
@@ -224,7 +242,7 @@ mod tests {
                 let mut map = BTreeMap::new();
                 map.insert("bucket".to_string(),
                     FieldValue::Scalar(Value::Integer(i64::from(*bucket))));
-                c.upsert(id, embedding(v), Some(Payload::new(map).expect("valid")))
+                c.upsert(id, embedding(v), None, Some(Payload::new(map).expect("valid")))
                     .expect("upsert");
                 expected.push((id, [v[0], v[1]], *bucket));
             }

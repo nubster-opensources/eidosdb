@@ -24,6 +24,7 @@ missing_panics_doc = "allow"
 
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
+eidosdb-lexical = { path = "../eidosdb-lexical" }
 thiserror.workspace = true
 serde.workspace = true
 
