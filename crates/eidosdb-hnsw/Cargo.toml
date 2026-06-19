@@ -1,0 +1,31 @@
+[package]
+name = "eidosdb-hnsw"
+description = "Sovereign in-house HNSW approximate nearest-neighbor index for EidosDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[dependencies]
+eidosdb-core = { path = "../eidosdb-core" }
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+uuid.workspace = true
