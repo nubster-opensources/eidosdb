@@ -177,7 +177,10 @@ impl HnswGraph {
     }
 
     /// Iterates over all node indices (including tombstoned ones).
-    // Used by Task 9 (HnswIndex::from_snapshot / snapshot rebuild).
+    // Reserved for future graph traversal utilities. `HnswIndex::snapshot` uses
+    // `node_count()` directly and `from_snapshot` iterates the snapshot slice,
+    // so this method is currently unused. The allow annotation prevents the
+    // clippy/rustc dead_code lint from firing on a public(crate) utility.
     #[allow(dead_code)]
     pub(crate) fn all_nodes(&self) -> impl Iterator<Item = NodeIdx> {
         0..self.nodes.len()

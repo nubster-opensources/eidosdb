@@ -90,6 +90,83 @@ impl HnswIndex {
         }
         Ok(())
     }
+
+    /// Captures a complete, serializable snapshot of the current graph state.
+    ///
+    /// Built by iterating all node indices, calling `node_snapshot` for each
+    /// (DRY: single construction site for `SnapshotNode`), then filling scalar
+    /// fields from `state_meta`.
+    #[must_use]
+    pub fn snapshot(&self) -> crate::graph::GraphSnapshot {
+        use crate::graph::GraphSnapshot;
+        let snap_nodes: Vec<crate::graph::SnapshotNode> = (0..self.graph.node_count())
+            .filter_map(|idx| self.node_snapshot(u64::try_from(idx).unwrap_or(u64::MAX)))
+            .collect();
+        let (entry_point, entry_level, rng_state, _node_count) = self.state_meta();
+        let live_count = snap_nodes.iter().filter(|n| !n.tombstone).count();
+        GraphSnapshot {
+            nodes: snap_nodes,
+            entry_point,
+            entry_level,
+            rng_state,
+            live_count: u64::try_from(live_count).unwrap_or(u64::MAX),
+        }
+    }
+
+    /// Reconstructs an `HnswIndex` from a `GraphSnapshot` EXACTLY: no
+    /// re-insertion, no RNG draw. The restored index is structurally identical
+    /// to the one that produced the snapshot (same adjacency, same entry-point,
+    /// same RNG state).
+    ///
+    /// `embeddings_by_node_idx`: closure mapping node-index to its `f32` values
+    /// (backed by the mmap segment in `PersistentHnswIndex`).
+    pub fn from_snapshot(
+        config: HnswConfig,
+        dimension: Dimension,
+        snapshot: &crate::graph::GraphSnapshot,
+        embeddings_by_node_idx: &dyn Fn(usize) -> Option<Vec<f32>>,
+    ) -> Result<Self, IndexError> {
+        let mut graph = HnswGraph::with_capacity(snapshot.nodes.len());
+        for (idx, node) in snapshot.nodes.iter().enumerate() {
+            let values = embeddings_by_node_idx(idx)
+                .ok_or_else(|| IndexError::Backend(format!("missing embedding for node {idx}")))?;
+            let embedding = Embedding::new(values)?;
+            let id = VectorId::from_uuid(uuid::Uuid::from_bytes(node.id_bytes));
+            let level = usize::try_from(node.level)
+                .map_err(|_| IndexError::Backend("node level overflow".to_string()))?;
+            graph.add_node(id, embedding, level)?;
+            if node.tombstone {
+                graph.tombstone(idx);
+            }
+            for (layer, neighbors) in node.neighbors_per_layer.iter().enumerate() {
+                let neighbor_idxs: Vec<NodeIdx> = neighbors
+                    .iter()
+                    .map(|&n| {
+                        usize::try_from(n)
+                            .map_err(|_| IndexError::Backend("neighbor index overflow".to_string()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                graph.set_neighbors(idx, layer, neighbor_idxs);
+            }
+        }
+        let entry_point = snapshot
+            .entry_point
+            .map(|ep| {
+                usize::try_from(ep)
+                    .map_err(|_| IndexError::Backend("entry_point overflow".to_string()))
+            })
+            .transpose()?;
+        graph.set_entry_point(entry_point);
+
+        let supported = [config.metric];
+        Ok(Self {
+            config,
+            dimension,
+            graph,
+            rng: crate::rng::SplitMix64::from_state(snapshot.rng_state),
+            supported,
+        })
+    }
 }
 
 // ---- beam search primitives ----

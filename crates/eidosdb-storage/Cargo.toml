@@ -26,6 +26,7 @@ missing_panics_doc = "allow"
 eidosdb-core = { path = "../eidosdb-core" }
 eidosdb-query = { path = "../eidosdb-query" }
 eidosdb-lexical = { path = "../eidosdb-lexical" }
+eidosdb-hnsw = { path = "../eidosdb-hnsw" }
 thiserror.workspace = true
 redb.workspace = true
 uuid.workspace = true

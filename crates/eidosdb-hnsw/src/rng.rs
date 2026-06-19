@@ -23,6 +23,11 @@ impl SplitMix64 {
         self.state
     }
 
+    /// Restores a generator from a previously captured state (for snapshot reload).
+    pub(crate) fn from_state(state: u64) -> Self {
+        Self { state }
+    }
+
     /// Advances the state and returns a uniformly distributed 64-bit value.
     pub(crate) fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
