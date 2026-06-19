@@ -19,3 +19,6 @@ rand.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[dev-dependencies]
+eidosdb-hnsw = { path = "../eidosdb-hnsw" }

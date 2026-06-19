@@ -198,30 +198,34 @@ fn beam_search(
     let mut visited = vec![false; graph.node_count()];
     visited[entry] = true;
 
-    // candidates: min-heap on score (we want to pop the worst candidate when
-    // the list overflows ef).
     let entry_score = metric.score(query, graph.node_embedding(entry).unwrap_or(&[]));
     let entry_id = graph.node_id(entry).unwrap_or_else(nil_id);
 
-    // We use two heaps: a max-heap of candidates to explore (frontier) and the
-    // result set (also maintained as a max-heap of size ef).
+    // frontier: max-heap by score - always explore the closest unexplored node first.
     let mut frontier: BinaryHeap<Candidate> = BinaryHeap::new();
     frontier.push(Candidate::new(entry_score, entry, entry_id));
 
-    // result: max-heap limited to ef elements; we evict the worst when full.
-    let mut result: BinaryHeap<Candidate> = BinaryHeap::new();
+    // result: min-heap by score (via Reverse) limited to ef elements.
+    // peek()/pop() on this heap always touches the WORST (lowest-score) element,
+    // which is what we need for both the early-exit test and eviction.
+    let mut result: BinaryHeap<std::cmp::Reverse<Candidate>> = BinaryHeap::new();
     // Only add entry to result if it is live and admissible.
     if !graph.is_tombstone(entry) && is_admissible(&entry_id) {
-        result.push(Candidate::new(entry_score, entry, entry_id));
+        result.push(std::cmp::Reverse(Candidate::new(
+            entry_score,
+            entry,
+            entry_id,
+        )));
     }
 
-    // Worst score currently in result (used to prune the frontier).
-    let worst_in_result =
-        |r: &BinaryHeap<Candidate>| -> f32 { r.peek().map_or(f32::NEG_INFINITY, |c| c.score().0) };
+    // Score of the worst (lowest-scoring) candidate currently in result.
+    let worst_in_result = |r: &BinaryHeap<std::cmp::Reverse<Candidate>>| -> f32 {
+        r.peek().map_or(f32::NEG_INFINITY, |c| c.0.score().0)
+    };
 
     while let Some(candidate) = frontier.peek().copied() {
         // If the best unexplored candidate is worse than the worst in result
-        // and result is full, stop.
+        // and result is full, we cannot improve result further: stop.
         if result.len() >= ef && candidate.score().0 < worst_in_result(&result) {
             break;
         }
@@ -240,8 +244,8 @@ fn beam_search(
                 && is_admissible(&nid)
                 && (result.len() < ef || s.0 > worst_in_result(&result))
             {
-                result.push(Candidate::new(s, neighbor, nid));
-                // Evict worst if over capacity.
+                result.push(std::cmp::Reverse(Candidate::new(s, neighbor, nid)));
+                // Evict the worst (lowest-score) candidate when over capacity.
                 while result.len() > ef {
                     result.pop();
                 }
@@ -250,7 +254,7 @@ fn beam_search(
     }
 
     // Drain result into a Vec sorted descending by score (closest first).
-    let mut out: Vec<Candidate> = result.into_vec();
+    let mut out: Vec<Candidate> = result.into_iter().map(|r| r.0).collect();
     out.sort_by(|a, b| {
         b.score()
             .0
@@ -468,13 +472,7 @@ impl HnswIndex {
                 beam_search(&self.graph, q, metric, current_entry, ef_c, layer, &|_| {
                     true
                 });
-            let selected = select_neighbors_heuristic(
-                &candidates,
-                q,
-                metric,
-                m_limit.min(self.config.m),
-                &self.graph,
-            );
+            let selected = select_neighbors_heuristic(&candidates, q, metric, m_limit, &self.graph);
             self.graph.set_neighbors(new_node, layer, selected.clone());
             for &sel in &selected {
                 touched.insert(u64::try_from(sel).unwrap_or(u64::MAX));
