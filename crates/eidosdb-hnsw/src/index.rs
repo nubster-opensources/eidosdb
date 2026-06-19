@@ -877,4 +877,119 @@ mod tests {
             "B (redundant with A) must be rejected"
         );
     }
+
+    // ---- proptest port properties ----
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn determinism_same_seed_same_results(
+            vectors in proptest::collection::vec(
+                proptest::collection::vec(-1.0_f32..1.0_f32, 4_usize..=4),
+                2..20_usize,
+            ),
+        ) {
+            let cfg = HnswConfig {
+                m: 4,
+                ef_construction: 20,
+                ef_search: 20,
+                seed: 42,
+                ..HnswConfig::default()
+            };
+            let mut a = HnswIndex::new(cfg, Dimension(4));
+            let mut b = HnswIndex::new(cfg, Dimension(4));
+            let ids: Vec<VectorId> = (0..vectors.len())
+                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i as u128)))
+                .collect();
+            for (id, v) in ids.iter().zip(&vectors) {
+                let e = emb(v);
+                a.insert(*id, e.clone()).expect("a");
+                b.insert(*id, e).expect("b");
+            }
+            let query = emb(&[1.0, 1.0, 1.0, 1.0]);
+            let ra = a.search(&query, 5).expect("a search");
+            let rb = b.search(&query, 5).expect("b search");
+            prop_assert_eq!(ra, rb);
+        }
+
+        #[test]
+        fn filtering_parity_with_flat_oracle(
+            vectors in proptest::collection::vec(
+                proptest::collection::vec(-1.0_f32..1.0_f32, 4_usize..=4),
+                2..15_usize,
+            ),
+        ) {
+            let cfg = HnswConfig {
+                m: 4,
+                ef_construction: 40,
+                ef_search: 40,
+                seed: 7,
+                ..HnswConfig::default()
+            };
+            let mut hnsw = HnswIndex::new(cfg, Dimension(4));
+            let mut flat = FlatIndex::new(Metric::Cosine, Dimension(4));
+            let ids: Vec<VectorId> = (0..vectors.len())
+                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i as u128 + 100)))
+                .collect();
+            for (id, v) in ids.iter().zip(&vectors) {
+                let e = emb(v);
+                hnsw.insert(*id, e.clone()).expect("hnsw");
+                flat.insert(*id, e).expect("flat");
+            }
+            // Admit only even-indexed ids.
+            let allowed: Vec<VectorId> = ids.iter().step_by(2).copied().collect();
+            let pred = |id: &VectorId| allowed.contains(id);
+            let query = emb(&[1.0, 1.0, 1.0, 1.0]);
+            let hnsw_ids: Vec<VectorId> = hnsw
+                .search_filtered(&query, 5, Metric::Cosine, &pred)
+                .expect("hnsw search")
+                .into_iter()
+                .map(|n| n.id)
+                .collect();
+            let flat_ids: Vec<VectorId> = flat
+                .search_filtered(&query, 5, Metric::Cosine, &pred)
+                .expect("flat search")
+                .into_iter()
+                .map(|n| n.id)
+                .collect();
+            // Every flat-oracle result must also appear in hnsw results.
+            // HNSW may miss some under low ef; we check the common prefix.
+            for id in &flat_ids {
+                prop_assert!(
+                    hnsw_ids.contains(id) || flat_ids.len() == 1,
+                    "flat result {id:?} missing from hnsw; hnsw={hnsw_ids:?} flat={flat_ids:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn tombstone_never_in_results_prop(
+            vectors in proptest::collection::vec(
+                proptest::collection::vec(-1.0_f32..1.0_f32, 4_usize..=4),
+                2..12_usize,
+            ),
+        ) {
+            let cfg = HnswConfig {
+                m: 4,
+                ef_construction: 20,
+                ef_search: 20,
+                seed: 99,
+                ..HnswConfig::default()
+            };
+            let mut index = HnswIndex::new(cfg, Dimension(4));
+            let ids: Vec<VectorId> = (0..vectors.len())
+                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i as u128 + 200)))
+                .collect();
+            for (id, v) in ids.iter().zip(&vectors) {
+                index.insert(*id, emb(v)).expect("insert");
+            }
+            // Tombstone the first id.
+            index.remove(ids[0]).expect("remove");
+            let results = index
+                .search(&emb(&[1.0, 1.0, 1.0, 1.0]), ids.len())
+                .expect("search");
+            prop_assert!(results.iter().all(|r| r.id != ids[0]));
+        }
+    }
 }
