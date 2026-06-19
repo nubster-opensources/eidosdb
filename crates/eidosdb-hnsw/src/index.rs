@@ -72,21 +72,23 @@ impl HnswIndex {
     /// re-inserts them via `bulk_insert`. The RNG is re-seeded from
     /// `config.seed` so the resulting graph is deterministic for the same live
     /// set in the same order.
-    pub fn compact(&mut self) {
+    ///
+    /// Returns `Err` if a stored embedding is somehow malformed or a re-insert
+    /// fails (neither should happen in normal operation).
+    pub fn compact(&mut self) -> Result<(), IndexError> {
         let live: Vec<(VectorId, Embedding)> = self
             .graph
             .live_nodes()
             .map(|(_, id, slice, _)| {
-                let embedding = Embedding::new(slice.to_vec()).expect("stored embedding is valid");
-                (id, embedding)
+                Embedding::new(slice.to_vec()).map(|embedding| (id, embedding))
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
         self.rng = SplitMix64::new(self.config.seed);
         self.graph = HnswGraph::with_capacity(live.len());
         for (id, embedding) in live {
-            self.insert(id, embedding)
-                .expect("compact re-insert is always valid");
+            self.insert(id, embedding)?;
         }
+        Ok(())
     }
 }
 
@@ -160,8 +162,7 @@ fn greedy_descent(
             let mut improved = false;
             for &neighbor in graph.neighbors(current, layer) {
                 let s = metric.score(query, graph.node_embedding(neighbor).unwrap_or(&[]));
-                #[allow(clippy::float_cmp)]
-                let is_tie = s.0 == current_score.0;
+                let is_tie = s.0.total_cmp(&current_score.0).is_eq();
                 if s.0 > current_score.0
                     || (is_tie
                         && graph.node_id(neighbor).unwrap_or_else(nil_id)
@@ -267,6 +268,8 @@ fn beam_search(
 /// diversity).
 fn select_neighbors_heuristic(
     candidates: &[Candidate],
+    // The distance to base is taken from the precomputed `Candidate` score, so
+    // the base embedding itself is not needed here.
     _base_embedding: &[f32],
     metric: Metric,
     m_max: usize,
@@ -279,12 +282,12 @@ fn select_neighbors_heuristic(
             break;
         }
         let cand_emb = graph.node_embedding(candidate.node).unwrap_or(&[]);
-        let dist_to_base = candidate.score().0; // score of candidate vs base query
+        let score_to_base = candidate.score().0; // score of candidate vs base query
         // Accept candidate if it is closer to base than to any already-selected neighbor.
         for &sel in &selected {
             let sel_emb = graph.node_embedding(sel).unwrap_or(&[]);
-            let dist_cand_to_sel = metric.score(cand_emb, sel_emb).0;
-            if dist_cand_to_sel > dist_to_base {
+            let score_cand_to_sel = metric.score(cand_emb, sel_emb).0;
+            if score_cand_to_sel > score_to_base {
                 // Candidate is closer to selected neighbor than to base: skip it.
                 continue 'outer;
             }
@@ -785,7 +788,7 @@ mod tests {
         index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
         index.insert(drop, emb(&[0.0, 1.0])).expect("drop");
         index.remove(drop).expect("remove");
-        index.compact();
+        index.compact().expect("compact");
         assert_eq!(index.len(), 1);
         let results = index.search(&emb(&[1.0, 0.0]), 10).expect("search");
         assert_eq!(results.len(), 1);
