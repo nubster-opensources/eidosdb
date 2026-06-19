@@ -9,3 +9,7 @@ mod config;
 pub use config::{DEFAULT_SEED, HnswConfig};
 
 pub(crate) mod rng;
+
+pub(crate) mod graph;
+
+pub use graph::{GraphSnapshot, SnapshotNode};

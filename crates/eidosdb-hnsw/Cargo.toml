@@ -25,6 +25,8 @@ missing_panics_doc = "allow"
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
 thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+postcard = { workspace = true, default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 proptest.workspace = true
