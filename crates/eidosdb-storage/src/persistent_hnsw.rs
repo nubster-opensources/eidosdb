@@ -608,4 +608,135 @@ mod tests {
             );
         }
     }
+
+    /// Verifies that `bulk_load` produces the same search results as individual
+    /// incremental inserts, given identical ids, vectors, config, and seed.
+    #[test]
+    fn bulk_load_produces_same_results_as_individual_inserts() {
+        let dir_bulk = TempDir::new().expect("bulk dir");
+        let dir_indv = TempDir::new().expect("indv dir");
+        // Fixed ids so both builds have identical insertion order and the same seed.
+        let ids: Vec<VectorId> = (0..10_u128)
+            .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i + 500)))
+            .collect();
+        let bulk_cfg = HnswConfig {
+            metric: Metric::Cosine,
+            m: 4,
+            ef_construction: 20,
+            ef_search: 20,
+            seed: 0,
+        };
+        let items: Vec<(VectorId, Embedding)> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let v = f32::from(u8::try_from(i).expect("index fits u8")) / 10.0;
+                (*id, emb(&[v, 1.0 - v]))
+            })
+            .collect();
+
+        let bulk =
+            PersistentHnswIndex::bulk_load(dir_bulk.path(), bulk_cfg, Dimension(2), items.clone())
+                .expect("bulk_load");
+
+        let mut indv =
+            PersistentHnswIndex::create(dir_indv.path(), bulk_cfg, Dimension(2)).expect("create");
+        for (id, e) in &items {
+            indv.insert(*id, e.clone()).expect("indv insert");
+        }
+
+        let query = emb(&[0.5, 0.5]);
+        let b_ids: Vec<VectorId> = bulk
+            .search(&query, 5)
+            .expect("bulk search")
+            .into_iter()
+            .map(|n| n.id)
+            .collect();
+        let i_ids: Vec<VectorId> = indv
+            .search(&query, 5)
+            .expect("indv search")
+            .into_iter()
+            .map(|n| n.id)
+            .collect();
+        assert_eq!(b_ids, i_ids);
+    }
+
+    /// Full lifecycle: create / insert / remove (tombstone) / compact / close /
+    /// open / search. Asserts tombstoned ids never return and live results
+    /// survive the round-trip.
+    #[test]
+    fn full_lifecycle_insert_remove_compact_close_open_search() {
+        let dir = TempDir::new().expect("tempdir");
+        let life_cfg = HnswConfig {
+            metric: Metric::Cosine,
+            m: 4,
+            ef_construction: 20,
+            ef_search: 20,
+            seed: 0,
+        };
+        let keep = VectorId::new();
+        let noise = VectorId::new();
+        {
+            let mut index =
+                PersistentHnswIndex::create(dir.path(), life_cfg, Dimension(2)).expect("create");
+            index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
+            index.insert(noise, emb(&[0.0, 1.0])).expect("noise");
+            // Tombstone `noise` then compact to reclaim space.
+            index.remove(noise).expect("remove");
+            index.compact().expect("compact");
+            // After compact, the tombstoned id must not appear.
+            let results = index
+                .search(&emb(&[1.0, 0.0]), 10)
+                .expect("pre-close search");
+            assert!(
+                results.iter().all(|r| r.id != noise),
+                "tombstoned id in pre-close search results"
+            );
+            assert!(
+                results.iter().any(|r| r.id == keep),
+                "live id missing from pre-close search results"
+            );
+        }
+        // Reopen: durability check.
+        let index = PersistentHnswIndex::open(dir.path()).expect("reopen");
+        let results = index
+            .search(&emb(&[1.0, 0.0]), 10)
+            .expect("post-open search");
+        assert!(
+            results.iter().all(|r| r.id != noise),
+            "tombstoned id reappeared after reopen"
+        );
+        assert!(
+            results.iter().any(|r| r.id == keep),
+            "live id missing after reopen"
+        );
+    }
+
+    /// Verifies that `compact` removes all tombstone ghosts from the persisted
+    /// graph while preserving every live result.
+    #[test]
+    fn compact_persistent_preserves_results() {
+        let dir = TempDir::new().expect("tempdir");
+        let compact_cfg = HnswConfig {
+            metric: Metric::Cosine,
+            m: 4,
+            ef_construction: 20,
+            ef_search: 20,
+            seed: 0,
+        };
+        let mut index =
+            PersistentHnswIndex::create(dir.path(), compact_cfg, Dimension(2)).expect("create");
+        let keep = VectorId::new();
+        for _ in 0..5 {
+            let noise = VectorId::new();
+            index.insert(noise, emb(&[0.0, 1.0])).expect("noise");
+            index.remove(noise).expect("remove noise");
+        }
+        index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
+        index.compact().expect("compact");
+        assert_eq!(index.len(), 1);
+        let results = index.search(&emb(&[1.0, 0.0]), 10).expect("search");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, keep);
+    }
 }
