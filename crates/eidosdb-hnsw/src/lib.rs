@@ -7,3 +7,5 @@
 
 mod config;
 pub use config::{DEFAULT_SEED, HnswConfig};
+
+pub(crate) mod rng;
