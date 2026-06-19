@@ -900,7 +900,7 @@ mod tests {
             let mut a = HnswIndex::new(cfg, Dimension(4));
             let mut b = HnswIndex::new(cfg, Dimension(4));
             let ids: Vec<VectorId> = (0..vectors.len())
-                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i as u128)))
+                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128"))))
                 .collect();
             for (id, v) in ids.iter().zip(&vectors) {
                 let e = emb(v);
@@ -917,7 +917,7 @@ mod tests {
         fn filtering_parity_with_flat_oracle(
             vectors in proptest::collection::vec(
                 proptest::collection::vec(-1.0_f32..1.0_f32, 4_usize..=4),
-                2..15_usize,
+                4..15_usize,
             ),
         ) {
             let cfg = HnswConfig {
@@ -930,14 +930,15 @@ mod tests {
             let mut hnsw = HnswIndex::new(cfg, Dimension(4));
             let mut flat = FlatIndex::new(Metric::Cosine, Dimension(4));
             let ids: Vec<VectorId> = (0..vectors.len())
-                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i as u128 + 100)))
+                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128") + 100)))
                 .collect();
             for (id, v) in ids.iter().zip(&vectors) {
                 let e = emb(v);
                 hnsw.insert(*id, e.clone()).expect("hnsw");
                 flat.insert(*id, e).expect("flat");
             }
-            // Admit only even-indexed ids.
+            // Admit only even-indexed ids. With MIN=4 vectors, step_by(2)
+            // guarantees at least 2 admissible ids (indices 0 and 2).
             let allowed: Vec<VectorId> = ids.iter().step_by(2).copied().collect();
             let pred = |id: &VectorId| allowed.contains(id);
             let query = emb(&[1.0, 1.0, 1.0, 1.0]);
@@ -953,11 +954,18 @@ mod tests {
                 .into_iter()
                 .map(|n| n.id)
                 .collect();
-            // Every flat-oracle result must also appear in hnsw results.
-            // HNSW may miss some under low ef; we check the common prefix.
+            // Precision: HNSW must only return admissible ids.
+            for id in &hnsw_ids {
+                prop_assert!(
+                    allowed.contains(id),
+                    "search_filtered returned a non-admissible id {id:?}; allowed={allowed:?}"
+                );
+            }
+            // Recall: every flat-oracle result must also appear in hnsw results.
+            // HNSW is exact on tiny corpora (ef=40 >> corpus size), so this holds.
             for id in &flat_ids {
                 prop_assert!(
-                    hnsw_ids.contains(id) || flat_ids.len() == 1,
+                    hnsw_ids.contains(id),
                     "flat result {id:?} missing from hnsw; hnsw={hnsw_ids:?} flat={flat_ids:?}"
                 );
             }
@@ -979,7 +987,7 @@ mod tests {
             };
             let mut index = HnswIndex::new(cfg, Dimension(4));
             let ids: Vec<VectorId> = (0..vectors.len())
-                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i as u128 + 200)))
+                .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128") + 200)))
                 .collect();
             for (id, v) in ids.iter().zip(&vectors) {
                 index.insert(*id, emb(v)).expect("insert");
