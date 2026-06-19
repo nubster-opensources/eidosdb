@@ -27,6 +27,7 @@ eidosdb-core = { path = "../eidosdb-core" }
 thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 postcard = { workspace = true, default-features = false, features = ["alloc"] }
+uuid.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

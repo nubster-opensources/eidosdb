@@ -10,13 +10,9 @@ use eidosdb_core::{Dimension, Embedding, IndexError, VectorId};
 use std::collections::HashMap;
 
 /// Internal node index. Dense, monotonically increasing.
-// Allow: consumed by Task 5 (HnswIndex).
-#[allow(dead_code)]
 pub(crate) type NodeIdx = usize;
 
 /// One node in the HNSW graph.
-// Allow: consumed by Task 5 (HnswIndex).
-#[allow(dead_code)]
 struct Node {
     id: VectorId,
     embedding: Embedding,
@@ -30,8 +26,6 @@ struct Node {
 }
 
 /// The private HNSW graph: owns all nodes and the live id map.
-// Allow: consumed by Task 5 (HnswIndex).
-#[allow(dead_code)]
 pub(crate) struct HnswGraph {
     nodes: Vec<Node>,
     /// Maps a `VectorId` to the `NodeIdx` of its LIVE node. A tombstoned node is
@@ -44,8 +38,6 @@ pub(crate) struct HnswGraph {
     live_count: usize,
 }
 
-// Allow: all methods consumed by Task 5 (HnswIndex).
-#[allow(dead_code)]
 impl HnswGraph {
     /// Creates an empty graph.
     pub(crate) fn new() -> Self {
@@ -185,6 +177,8 @@ impl HnswGraph {
     }
 
     /// Iterates over all node indices (including tombstoned ones).
+    // Used by Task 9 (HnswIndex::from_snapshot / snapshot rebuild).
+    #[allow(dead_code)]
     pub(crate) fn all_nodes(&self) -> impl Iterator<Item = NodeIdx> {
         0..self.nodes.len()
     }

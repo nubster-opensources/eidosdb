@@ -5,17 +5,22 @@
 //! deterministic sequence: same seed, same insertion order = identical graph.
 
 /// A seeded, deterministic 64-bit generator based on the `SplitMix64` algorithm.
-// Dead code is expected until Task 5 wires this into HnswIndex::insert.
-#[allow(dead_code)]
 pub(crate) struct SplitMix64 {
     state: u64,
 }
 
-#[allow(dead_code)]
 impl SplitMix64 {
     /// Creates a generator seeded with `seed`.
     pub(crate) fn new(seed: u64) -> Self {
         Self { state: seed }
+    }
+
+    /// Returns the current internal state for snapshotting.
+    ///
+    /// Used by `HnswIndex::state_meta` to persist the RNG position so restore
+    /// resumes exactly without replaying draws.
+    pub(crate) fn state(&self) -> u64 {
+        self.state
     }
 
     /// Advances the state and returns a uniformly distributed 64-bit value.
