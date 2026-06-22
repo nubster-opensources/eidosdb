@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/eidosdb-core",
     "crates/eidosdb-lexical",
+    "crates/eidosdb-hnsw",
     "crates/eidosdb-query",
     "crates/eidosdb-storage",
     "crates/eidosdb-bench",

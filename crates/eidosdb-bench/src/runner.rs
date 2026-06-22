@@ -70,4 +70,64 @@ mod tests {
         assert!((report.mean_recall - 1.0).abs() < 1e-6);
         assert_eq!(report.query_count, 10);
     }
+
+    #[test]
+    fn hnsw_cosine_recall_above_threshold() {
+        use eidosdb_hnsw::{HnswConfig, HnswIndex};
+        let cfg = HnswConfig {
+            metric: Metric::Cosine,
+            m: 16,
+            ef_construction: 200,
+            ef_search: 64,
+            seed: 1,
+        };
+        let dataset = generate(1, 16, 500, 50);
+        let index = HnswIndex::new(cfg, Dimension(16));
+        let report = run(index, &dataset, 10);
+        assert!(
+            report.mean_recall >= 0.90,
+            "cosine recall {:.3} below 0.90",
+            report.mean_recall
+        );
+    }
+
+    #[test]
+    fn hnsw_euclidean_recall_above_threshold() {
+        use eidosdb_hnsw::{HnswConfig, HnswIndex};
+        let cfg = HnswConfig {
+            metric: Metric::Euclidean,
+            m: 16,
+            ef_construction: 200,
+            ef_search: 64,
+            seed: 2,
+        };
+        let dataset = generate(2, 16, 500, 50);
+        let index = HnswIndex::new(cfg, Dimension(16));
+        let report = run(index, &dataset, 10);
+        assert!(
+            report.mean_recall >= 0.90,
+            "euclidean recall {:.3} below 0.90",
+            report.mean_recall
+        );
+    }
+
+    #[test]
+    fn hnsw_dotproduct_recall_above_threshold() {
+        use eidosdb_hnsw::{HnswConfig, HnswIndex};
+        let cfg = HnswConfig {
+            metric: Metric::DotProduct,
+            m: 16,
+            ef_construction: 200,
+            ef_search: 64,
+            seed: 3,
+        };
+        let dataset = generate(3, 16, 500, 50);
+        let index = HnswIndex::new(cfg, Dimension(16));
+        let report = run(index, &dataset, 10);
+        assert!(
+            report.mean_recall >= 0.90,
+            "dotproduct recall {:.3} below 0.90",
+            report.mean_recall
+        );
+    }
 }

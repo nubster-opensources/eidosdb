@@ -26,3 +26,6 @@ pub use persistent_payload::PersistentPayloadStore;
 
 mod persistent_lexical;
 pub use persistent_lexical::PersistentLexicalIndex;
+
+mod persistent_hnsw;
+pub use persistent_hnsw::PersistentHnswIndex;

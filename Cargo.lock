@@ -164,6 +164,7 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "eidosdb-core",
+ "eidosdb-hnsw",
  "eidosdb-storage",
  "rand 0.8.6",
  "serde_json",
@@ -175,6 +176,18 @@ name = "eidosdb-core"
 version = "0.0.1"
 dependencies = [
  "proptest",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "eidosdb-hnsw"
+version = "0.0.1"
+dependencies = [
+ "eidosdb-core",
+ "postcard",
+ "proptest",
+ "serde",
  "thiserror",
  "uuid",
 ]
@@ -206,6 +219,7 @@ version = "0.0.1"
 dependencies = [
  "bytemuck",
  "eidosdb-core",
+ "eidosdb-hnsw",
  "eidosdb-lexical",
  "eidosdb-query",
  "memmap2",

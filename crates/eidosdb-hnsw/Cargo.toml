@@ -1,6 +1,6 @@
 [package]
-name = "eidosdb-storage"
-description = "Durable storage for EidosDB: redb metadata plus memory-mapped vector segments."
+name = "eidosdb-hnsw"
+description = "Sovereign in-house HNSW approximate nearest-neighbor index for EidosDB."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [lints.rust]
-unsafe_code = "allow"
+unsafe_code = "deny"
 missing_docs = "warn"
 
 [lints.clippy]
@@ -24,17 +24,11 @@ missing_panics_doc = "allow"
 
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
-eidosdb-query = { path = "../eidosdb-query" }
-eidosdb-lexical = { path = "../eidosdb-lexical" }
-eidosdb-hnsw = { path = "../eidosdb-hnsw" }
 thiserror.workspace = true
-redb.workspace = true
+serde = { workspace = true, features = ["derive"] }
+postcard = { workspace = true, default-features = false, features = ["alloc"] }
 uuid.workspace = true
-memmap2.workspace = true
-bytemuck.workspace = true
-postcard.workspace = true
-serde.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 proptest.workspace = true
+uuid.workspace = true
