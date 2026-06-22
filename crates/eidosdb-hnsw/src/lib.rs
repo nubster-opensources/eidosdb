@@ -1,4 +1,4 @@
-//! Sovereign in-house HNSW (Hierarchical Navigable Small World) index for
+//! In-house HNSW (Hierarchical Navigable Small World) index for
 //! `EidosDB`. Implements the `VectorIndex` port from `eidosdb-core`.
 //!
 //! This crate is a peer of the geometric core. It introduces no `unsafe` code:

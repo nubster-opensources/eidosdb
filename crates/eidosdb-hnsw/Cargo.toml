@@ -1,6 +1,6 @@
 [package]
 name = "eidosdb-hnsw"
-description = "Sovereign in-house HNSW approximate nearest-neighbor index for EidosDB."
+description = "In-house HNSW approximate nearest-neighbor index for EidosDB."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
