@@ -253,6 +253,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "eidosdb-cli"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "eidosdb-client",
+ "eidosdb-core",
+ "eidosdb-hnsw",
+ "eidosdb-lexical",
+ "eidosdb-proto",
+ "eidosdb-query",
+ "eidosdb-server",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "uuid",
+]
+
+[[package]]
 name = "eidosdb-client"
 version = "0.0.1"
 dependencies = [
