@@ -9,6 +9,10 @@ license.workspace = true
 [lints]
 workspace = true
 
+[[bin]]
+name = "eidosd"
+path = "src/bin/eidosd.rs"
+
 [dependencies]
 eidosdb-core = { path = "../eidosdb-core" }
 eidosdb-query = { path = "../eidosdb-query" }
@@ -21,7 +25,9 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+clap = { workspace = true }
 tracing = "0.1"
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

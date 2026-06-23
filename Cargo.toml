@@ -41,6 +41,7 @@ prost = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
