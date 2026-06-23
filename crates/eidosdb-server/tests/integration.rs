@@ -692,22 +692,89 @@ async fn search_hybrid_wrong_vector_dimension_is_invalid_argument() {
 }
 
 // ---------------------------------------------------------------------------
-// B9 tests (BulkUpsert stub + concurrency safety)
+// B9 / C1 tests (concurrency safety + client-streaming BulkUpsert)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn bulk_upsert_is_unimplemented_for_now() {
+async fn bulk_upsert_streams_points_incrementally() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
-    let outbound = tokio_stream::iter(vec![pb::BulkUpsertRequest {
-        collection: "notes".into(),
-        points: vec![],
-    }]);
-    let err = client
-        .bulk_upsert(outbound)
+    let chunks: Vec<pb::BulkUpsertRequest> = (0..3u32)
+        .map(|c| pb::BulkUpsertRequest {
+            collection: "notes".into(),
+            points: (0..10u32)
+                .map(|i| pb::Point {
+                    id: VectorId::new().as_uuid().to_string(),
+                    vector: vec![
+                        f32::from(u16::try_from(c * 10 + i).expect("fits u16")),
+                        0.0,
+                        0.0,
+                    ],
+                    document: None,
+                    payload: None,
+                })
+                .collect(),
+        })
+        .collect();
+    let resp = client
+        .bulk_upsert(tokio_stream::iter(chunks))
         .await
-        .expect_err("bulk_upsert should be unimplemented");
-    assert_eq!(err.code(), tonic::Code::Unimplemented);
+        .expect("bulk_upsert")
+        .into_inner();
+    assert_eq!(resp.upserted, 30);
+    let info = client
+        .describe_collection(pb::DescribeCollectionRequest {
+            name: "notes".into(),
+        })
+        .await
+        .expect("describe")
+        .into_inner();
+    assert_eq!(info.count, 30);
+}
+
+#[tokio::test]
+async fn bulk_upsert_empty_stream_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let err = client
+        .bulk_upsert(tokio_stream::iter(Vec::<pb::BulkUpsertRequest>::new()))
+        .await
+        .expect_err("empty stream");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn bulk_upsert_wrong_dimension_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let chunk = pb::BulkUpsertRequest {
+        collection: "notes".into(),
+        points: vec![pb::Point {
+            id: VectorId::new().as_uuid().to_string(),
+            vector: vec![1.0, 2.0],
+            document: None,
+            payload: None,
+        }],
+    };
+    let err = client
+        .bulk_upsert(tokio_stream::iter(vec![chunk]))
+        .await
+        .expect_err("dim");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn bulk_upsert_unknown_collection_is_not_found() {
+    let (mut client, _dir) = start_server().await;
+    let chunk = pb::BulkUpsertRequest {
+        collection: "ghost".into(),
+        points: vec![],
+    };
+    let err = client
+        .bulk_upsert(tokio_stream::iter(vec![chunk]))
+        .await
+        .expect_err("nf");
+    assert_eq!(err.code(), tonic::Code::NotFound);
 }
 
 #[tokio::test]

@@ -1,10 +1,9 @@
 //! gRPC service implementation for `EidosDB`.
 //!
 //! [`EidosDbService`] wraps an [`Arc<Registry>`] and implements the eleven
-//! RPCs declared by the `EidosDb` protobuf service.  Ten RPCs are implemented:
-//! the four lifecycle RPCs, plus `Upsert`, `BatchUpsert`, `Delete`, `Compact`,
-//! `Search`, and `SearchHybrid`.  The remaining `BulkUpsert` client-streaming
-//! RPC is a stub returning [`Status::unimplemented`] until Lot C.
+//! RPCs declared by the `EidosDb` protobuf service: the four lifecycle RPCs,
+//! plus `Upsert`, `BatchUpsert`, `BulkUpsert`, `Delete`, `Compact`, `Search`,
+//! and `SearchHybrid`.
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -362,11 +361,75 @@ impl EidosDb for EidosDbService {
         .map(|upserted| Response::new(pb::BatchUpsertResponse { upserted }))
     }
 
+    /// Inserts or updates a stream of point chunks into a single collection.
+    ///
+    /// The target collection is taken from the first message; an empty stream is
+    /// rejected with `INVALID_ARGUMENT`.  Each chunk is applied under its own
+    /// write-guard so concurrent readers can interleave between chunks.  Returns
+    /// `NOT_FOUND` when the collection does not exist, `INVALID_ARGUMENT` when a
+    /// point has the wrong dimension or a later chunk names a different
+    /// collection.
     async fn bulk_upsert(
         &self,
-        _request: Request<tonic::Streaming<pb::BulkUpsertRequest>>,
+        request: Request<tonic::Streaming<pb::BulkUpsertRequest>>,
     ) -> Result<Response<pb::BulkUpsertResponse>, Status> {
-        Err(Status::unimplemented("bulk_upsert not yet implemented"))
+        let mut stream = request.into_inner();
+
+        // The collection is determined by the first message; an empty stream is
+        // a client error.
+        let first = stream
+            .message()
+            .await?
+            .ok_or_else(|| Status::invalid_argument("bulk_upsert stream carried no messages"))?;
+
+        let collection = first.collection.clone();
+        let handle = self
+            .registry
+            .get(&collection)
+            .ok_or_else(|| not_found(&collection))?;
+        let expected_dim = handle.meta.dimension.get();
+
+        let mut upserted: u64 = 0;
+        let mut message = Some(first);
+
+        while let Some(req) = message {
+            // A later chunk naming a different collection would misroute points.
+            if !req.collection.is_empty() && req.collection != collection {
+                return Err(Status::invalid_argument(
+                    "bulk_upsert stream changed collection mid-stream",
+                ));
+            }
+
+            // Decode and validate this chunk before entering the blocking section.
+            let decoded = req
+                .points
+                .into_iter()
+                .map(|point| {
+                    if point.vector.len() != expected_dim {
+                        return Err(Status::invalid_argument(format!(
+                            "vector dimension mismatch: expected {expected_dim}, got {}",
+                            point.vector.len(),
+                        )));
+                    }
+                    point_from_pb(point).map_err(|e| conversion_error_to_status(&e))
+                })
+                .collect::<Result<Vec<_>, Status>>()?;
+
+            let chunk_len = decoded.len();
+            run_blocking(Arc::clone(&handle), move |kind| {
+                for d in decoded {
+                    kind.upsert(d.id, d.embedding, d.document.as_ref(), d.payload)
+                        .map_err(|e| query_error_to_status(&e))?;
+                }
+                Ok(())
+            })
+            .await?;
+            upserted += u64::try_from(chunk_len).unwrap_or(u64::MAX);
+
+            message = stream.message().await?;
+        }
+
+        Ok(Response::new(pb::BulkUpsertResponse { upserted }))
     }
 
     async fn delete(
