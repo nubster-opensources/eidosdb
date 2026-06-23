@@ -9,6 +9,7 @@ members = [
     "crates/eidosdb-bench",
     "crates/eidosdb-proto",
     "crates/eidosdb-server",
+    "crates/eidosdb-client",
     "xtask",
 ]
 
