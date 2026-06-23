@@ -401,3 +401,292 @@ async fn compact_unknown_collection_is_not_found() {
         .expect_err("nf");
     assert_eq!(err.code(), tonic::Code::NotFound);
 }
+
+// ---------------------------------------------------------------------------
+// B8 helpers + tests (search / search_hybrid + parity oracle)
+// ---------------------------------------------------------------------------
+
+/// Builds a payload carrying a single scalar text field.
+fn text_payload(field: &str, value: &str) -> pb::Payload {
+    let mut fields = std::collections::HashMap::new();
+    fields.insert(
+        field.to_string(),
+        pb::FieldValue {
+            kind: Some(pb::field_value::Kind::Scalar(pb::Value {
+                kind: Some(pb::value::Kind::Text(value.to_string())),
+            })),
+        },
+    );
+    pb::Payload { fields }
+}
+
+/// Builds an equality filter on a scalar text field.
+fn text_eq_filter(field: &str, value: &str) -> pb::Filter {
+    pb::Filter {
+        kind: Some(pb::filter::Kind::Eq(pb::Comparison {
+            field: field.to_string(),
+            value: Some(pb::Value {
+                kind: Some(pb::value::Kind::Text(value.to_string())),
+            }),
+        })),
+    }
+}
+
+#[tokio::test]
+async fn search_returns_nearest_hit() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let target = VectorId::new().as_uuid().to_string();
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: target.clone(),
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect("upsert");
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: VectorId::new().as_uuid().to_string(),
+                vector: vec![0.0, 1.0, 0.0],
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect("upsert2");
+    let resp = client
+        .search(pb::SearchRequest {
+            collection: "notes".into(),
+            vector: vec![1.0, 0.0, 0.0],
+            k: 1,
+            metric: None,
+            filter: None,
+        })
+        .await
+        .expect("search")
+        .into_inner();
+    assert_eq!(resp.hits.len(), 1);
+    assert_eq!(resp.hits[0].id, target);
+}
+
+#[tokio::test]
+async fn search_unknown_collection_is_not_found() {
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .search(pb::SearchRequest {
+            collection: "ghost".into(),
+            vector: vec![1.0, 0.0, 0.0],
+            k: 1,
+            metric: None,
+            filter: None,
+        })
+        .await
+        .expect_err("nf");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+}
+
+#[tokio::test]
+async fn search_wrong_dimension_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let err = client
+        .search(pb::SearchRequest {
+            collection: "notes".into(),
+            vector: vec![1.0, 2.0],
+            k: 1,
+            metric: None,
+            filter: None,
+        })
+        .await
+        .expect_err("dim");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn search_with_filter_excludes_non_matching() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+
+    let note_id = VectorId::new().as_uuid().to_string();
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: note_id.clone(),
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: Some(text_payload("kind", "note")),
+            }),
+        })
+        .await
+        .expect("upsert note");
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: VectorId::new().as_uuid().to_string(),
+                vector: vec![0.9, 0.1, 0.0],
+                document: None,
+                payload: Some(text_payload("kind", "task")),
+            }),
+        })
+        .await
+        .expect("upsert task");
+
+    let resp = client
+        .search(pb::SearchRequest {
+            collection: "notes".into(),
+            vector: vec![1.0, 0.0, 0.0],
+            k: 5,
+            metric: None,
+            filter: Some(text_eq_filter("kind", "note")),
+        })
+        .await
+        .expect("search")
+        .into_inner();
+
+    assert_eq!(resp.hits.len(), 1);
+    assert_eq!(resp.hits[0].id, note_id);
+}
+
+#[tokio::test]
+async fn server_search_matches_direct_collection_kind() {
+    // ORACLE DE PARITE: searching through the gRPC layer must yield exactly the
+    // same hits, in the same order, as querying a CollectionKind directly. The
+    // HNSW seed is deterministic, so identical points produce identical graphs.
+    use eidosdb_core::{Dimension, Embedding};
+    use eidosdb_hnsw::HnswConfig;
+    use eidosdb_query::SearchQuery;
+    use eidosdb_server::collection_kind::CollectionKind;
+
+    // 1. Deterministic point set (same ids/vectors on both sides).
+    let points: Vec<(VectorId, Vec<f32>)> = (0..15u32)
+        .map(|i| {
+            let f = f32::from(u16::try_from(i).expect("fits u16"));
+            (VectorId::new(), vec![f, 15.0 - f, 0.5 * f])
+        })
+        .collect();
+    let query_vec = vec![3.0_f32, 12.0, 1.5];
+
+    // 2. Direct: a CollectionKind HNSW on its own tempdir, default config.
+    let direct_dir = tempfile::tempdir().expect("dir");
+    let mut direct =
+        CollectionKind::create_hnsw(direct_dir.path(), HnswConfig::default(), Dimension(3))
+            .expect("direct");
+    for (id, v) in &points {
+        direct
+            .upsert(*id, Embedding::new(v.clone()).expect("emb"), None, None)
+            .expect("upsert");
+    }
+    let direct_hits = direct
+        .search(&SearchQuery {
+            embedding: Embedding::new(query_vec.clone()).expect("q"),
+            k: 5,
+            metric: None,
+            filter: None,
+        })
+        .expect("direct search");
+    let direct_ids: Vec<String> = direct_hits
+        .iter()
+        .map(|h| h.id.as_uuid().to_string())
+        .collect();
+
+    // 3. Server: same points via gRPC.
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    for (id, v) in &points {
+        client
+            .upsert(pb::UpsertRequest {
+                collection: "notes".into(),
+                point: Some(pb::Point {
+                    id: id.as_uuid().to_string(),
+                    vector: v.clone(),
+                    document: None,
+                    payload: None,
+                }),
+            })
+            .await
+            .expect("upsert");
+    }
+    let resp = client
+        .search(pb::SearchRequest {
+            collection: "notes".into(),
+            vector: query_vec,
+            k: 5,
+            metric: None,
+            filter: None,
+        })
+        .await
+        .expect("search")
+        .into_inner();
+    let server_ids: Vec<String> = resp.hits.iter().map(|h| h.id.clone()).collect();
+
+    // 4. Parity: same ids in the same order.
+    assert_eq!(server_ids, direct_ids);
+}
+
+#[tokio::test]
+async fn search_hybrid_combines_text_and_vector() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 2).await;
+
+    let target = VectorId::new().as_uuid().to_string();
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: target.clone(),
+                vector: vec![1.0, 0.0],
+                document: Some("hello world".into()),
+                payload: None,
+            }),
+        })
+        .await
+        .expect("upsert");
+
+    let resp = client
+        .search_hybrid(pb::SearchHybridRequest {
+            collection: "notes".into(),
+            vector: vec![1.0, 0.0],
+            text: Some("hello".into()),
+            k: 5,
+            filter: None,
+            metric: None,
+            rrf_k: 0.0,
+            overfetch_factor: 0,
+        })
+        .await
+        .expect("search_hybrid")
+        .into_inner();
+
+    assert_eq!(resp.hits.len(), 1);
+    assert_eq!(resp.hits[0].id, target);
+}
+
+#[tokio::test]
+async fn search_hybrid_wrong_vector_dimension_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+
+    let err = client
+        .search_hybrid(pb::SearchHybridRequest {
+            collection: "notes".into(),
+            vector: vec![1.0, 2.0],
+            text: None,
+            k: 1,
+            filter: None,
+            metric: None,
+            rrf_k: 0.0,
+            overfetch_factor: 0,
+        })
+        .await
+        .expect_err("dim");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}

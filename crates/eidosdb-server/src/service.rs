@@ -1,9 +1,10 @@
 //! gRPC service implementation for `EidosDB`.
 //!
 //! [`EidosDbService`] wraps an [`Arc<Registry>`] and implements the eleven
-//! RPCs declared by the `EidosDb` protobuf service.  Four RPCs handle the
-//! collection lifecycle; the remaining seven are stubs that return
-//! [`Status::unimplemented`] and will be filled in by tasks B6, B7, B8, and C.
+//! RPCs declared by the `EidosDb` protobuf service.  Ten RPCs are implemented:
+//! the four lifecycle RPCs, plus `Upsert`, `BatchUpsert`, `Delete`, `Compact`,
+//! `Search`, and `SearchHybrid`.  The remaining `BulkUpsert` client-streaming
+//! RPC is a stub returning [`Status::unimplemented`] until Lot C.
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -11,8 +12,8 @@ use eidosdb_core::Dimension;
 use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
     convert::{
-        IndexTypeChoice, index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb,
-        point_from_pb, vector_id_from_pb,
+        IndexTypeChoice, hits_to_pb, hybrid_query_from_pb, index_type_from_pb, index_type_to_pb,
+        metric_from_pb, metric_to_pb, point_from_pb, search_query_from_pb, vector_id_from_pb,
     },
     pb::{
         self,
@@ -86,6 +87,28 @@ where
             .write()
             .map_err(|_| Status::internal("lock poisoned"))?;
         f(&mut guard)
+    })
+    .await
+    .map_err(|_| Status::internal("blocking task failed"))?
+}
+
+/// Runs a closure that reads from a [`CollectionKind`] on a `spawn_blocking` thread.
+///
+/// Mirrors [`run_blocking`] but acquires a **shared read-guard**, so multiple
+/// searches may run concurrently against the same collection.  The guard is
+/// acquired **inside** the blocking closure and is never held across an
+/// `await` point.
+async fn run_blocking_read<T, F>(handle: Arc<CollectionHandle>, f: F) -> Result<T, Status>
+where
+    F: FnOnce(&CollectionKind) -> Result<T, Status> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let guard = handle
+            .inner
+            .read()
+            .map_err(|_| Status::internal("lock poisoned"))?;
+        f(&guard)
     })
     .await
     .map_err(|_| Status::internal("blocking task failed"))?
@@ -367,18 +390,68 @@ impl EidosDb for EidosDbService {
         Ok(Response::new(pb::DeleteResponse { existed }))
     }
 
+    /// Runs a dense vector search against a named collection.
+    ///
+    /// Returns `NOT_FOUND` when the collection does not exist,
+    /// `INVALID_ARGUMENT` when the query vector dimension does not match the
+    /// collection or the request cannot be decoded.
     async fn search(
         &self,
-        _request: Request<pb::SearchRequest>,
+        request: Request<pb::SearchRequest>,
     ) -> Result<Response<pb::SearchResponse>, Status> {
-        Err(Status::unimplemented("search not yet implemented"))
+        let (name, query) = search_query_from_pb(request.into_inner())
+            .map_err(|e| conversion_error_to_status(&e))?;
+
+        let handle = self.registry.get(&name).ok_or_else(|| not_found(&name))?;
+
+        if query.embedding.dimension().get() != handle.meta.dimension.get() {
+            return Err(Status::invalid_argument(format!(
+                "query dimension mismatch: expected {}, got {}",
+                handle.meta.dimension.get(),
+                query.embedding.dimension().get(),
+            )));
+        }
+
+        let hits = run_blocking_read(handle, move |kind| {
+            kind.search(&query).map_err(|e| query_error_to_status(&e))
+        })
+        .await?;
+
+        Ok(Response::new(hits_to_pb(&hits)))
     }
 
+    /// Runs a hybrid (dense + lexical) search fused by reciprocal rank fusion.
+    ///
+    /// Returns `NOT_FOUND` when the collection does not exist,
+    /// `INVALID_ARGUMENT` when a supplied query vector dimension does not match
+    /// the collection or the request cannot be decoded.  Dimension validation
+    /// is skipped when no query vector is supplied (text-only search).
     async fn search_hybrid(
         &self,
-        _request: Request<pb::SearchHybridRequest>,
+        request: Request<pb::SearchHybridRequest>,
     ) -> Result<Response<pb::SearchResponse>, Status> {
-        Err(Status::unimplemented("search_hybrid not yet implemented"))
+        let (name, query) = hybrid_query_from_pb(request.into_inner())
+            .map_err(|e| conversion_error_to_status(&e))?;
+
+        let handle = self.registry.get(&name).ok_or_else(|| not_found(&name))?;
+
+        if let Some(vector) = &query.vector {
+            if vector.dimension().get() != handle.meta.dimension.get() {
+                return Err(Status::invalid_argument(format!(
+                    "query dimension mismatch: expected {}, got {}",
+                    handle.meta.dimension.get(),
+                    vector.dimension().get(),
+                )));
+            }
+        }
+
+        let hits = run_blocking_read(handle, move |kind| {
+            kind.search_hybrid(&query)
+                .map_err(|e| query_error_to_status(&e))
+        })
+        .await?;
+
+        Ok(Response::new(hits_to_pb(&hits)))
     }
 
     async fn compact(
