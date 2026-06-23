@@ -1,0 +1,33 @@
+[package]
+name = "eidosdb-cli"
+description = "Command-line client (eidos) for EidosDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "eidos"
+path = "src/main.rs"
+
+[dependencies]
+eidosdb-core = { path = "../eidosdb-core" }
+eidosdb-query = { path = "../eidosdb-query" }
+eidosdb-lexical = { path = "../eidosdb-lexical" }
+eidosdb-hnsw = { path = "../eidosdb-hnsw" }
+eidosdb-proto = { path = "../eidosdb-proto" }
+eidosdb-client = { path = "../eidosdb-client" }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+eidosdb-server = { path = "../eidosdb-server" }
+tonic = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio-stream = { version = "0.1", features = ["net"] }

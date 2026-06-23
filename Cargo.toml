@@ -7,6 +7,10 @@ members = [
     "crates/eidosdb-query",
     "crates/eidosdb-storage",
     "crates/eidosdb-bench",
+    "crates/eidosdb-proto",
+    "crates/eidosdb-server",
+    "crates/eidosdb-client",
+    "crates/eidosdb-cli",
     "xtask",
 ]
 
@@ -34,6 +38,12 @@ redb = "2"
 memmap2 = "0.9"
 bytemuck = "1"
 tempfile = "3"
+tonic = { version = "0.14", features = ["transport"] }
+prost = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

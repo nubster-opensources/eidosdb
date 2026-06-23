@@ -1,0 +1,26 @@
+[package]
+name = "eidosdb-client"
+description = "Typed async gRPC client for EidosDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+eidosdb-core = { path = "../eidosdb-core" }
+eidosdb-query = { path = "../eidosdb-query" }
+eidosdb-lexical = { path = "../eidosdb-lexical" }
+eidosdb-hnsw = { path = "../eidosdb-hnsw" }
+eidosdb-proto = { path = "../eidosdb-proto" }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = "0.1"
+
+[dev-dependencies]
+eidosdb-server = { path = "../eidosdb-server" }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio-stream = { version = "0.1", features = ["net"] }

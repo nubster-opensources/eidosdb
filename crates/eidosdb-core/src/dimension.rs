@@ -1,7 +1,9 @@
 //! The dimensionality of an embedding space.
 
+use serde::{Deserialize, Serialize};
+
 /// Number of components in an embedding vector.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Dimension(pub usize);
 
 impl Dimension {

@@ -1,7 +1,9 @@
 //! Distance metrics and the normalized similarity score.
 
+use serde::{Deserialize, Serialize};
+
 /// Similarity metric used to compare two embeddings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Metric {
     /// Cosine similarity in `[-1, 1]`, higher is closer.
     Cosine,

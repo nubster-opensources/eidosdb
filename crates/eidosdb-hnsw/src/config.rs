@@ -1,12 +1,13 @@
 //! Configuration for an HNSW index.
 
 use eidosdb_core::Metric;
+use serde::{Deserialize, Serialize};
 
 /// Parameters controlling HNSW graph construction and search.
 ///
 /// All derived quantities (`m_max0`, `m_max`, `m_l`) are computed from
 /// these fields at build time to avoid repeated division.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HnswConfig {
     /// Metric the graph is built for. Only this metric is supported at query time.
     pub metric: Metric,
