@@ -4,11 +4,12 @@
 //! domain query types, and [`eidosdb_query::SearchHit`] encoded into [`pb::Hit`].
 
 use crate::convert::{
-    embedding_from_pb, filter_from_pb, metric_from_pb, payload_to_pb, vector_id_to_pb,
+    embedding_from_pb, embedding_to_pb, filter_from_pb, filter_to_pb, metric_from_pb, metric_to_pb,
+    payload_from_pb, payload_to_pb, vector_id_from_pb, vector_id_to_pb,
 };
 use crate::error::ConversionError;
 use crate::pb;
-use eidosdb_core::Metric;
+use eidosdb_core::{Metric, Score};
 use eidosdb_query::{DEFAULT_OVERFETCH_FACTOR, DEFAULT_RRF_K, HybridQuery, SearchHit, SearchQuery};
 
 /// Converts an optional `i32` metric field from the wire into an optional domain [`Metric`].
@@ -119,6 +120,77 @@ pub fn hits_to_pb(hits: &[SearchHit]) -> pb::SearchResponse {
     pb::SearchResponse {
         hits: hits.iter().map(hit_to_pb).collect(),
     }
+}
+
+/// Encodes a domain [`SearchQuery`] into a [`pb::SearchRequest`] for `collection`.
+///
+/// # Errors
+///
+/// Returns [`ConversionError::Domain`] when `k` exceeds [`u32::MAX`].
+pub fn search_query_to_pb(
+    collection: &str,
+    query: &SearchQuery,
+) -> Result<pb::SearchRequest, ConversionError> {
+    Ok(pb::SearchRequest {
+        collection: collection.to_string(),
+        vector: embedding_to_pb(&query.embedding),
+        k: u32::try_from(query.k).map_err(|_| ConversionError::Domain("k out of range".into()))?,
+        metric: query.metric.map(|m| metric_to_pb(m) as i32),
+        filter: query.filter.as_ref().map(filter_to_pb),
+    })
+}
+
+/// Encodes a domain [`HybridQuery`] into a [`pb::SearchHybridRequest`] for `collection`.
+///
+/// An absent query vector becomes an empty `vector` field on the wire.
+///
+/// # Errors
+///
+/// Returns [`ConversionError::Domain`] when `k` or `overfetch_factor` exceeds [`u32::MAX`].
+pub fn hybrid_query_to_pb(
+    collection: &str,
+    query: &HybridQuery,
+) -> Result<pb::SearchHybridRequest, ConversionError> {
+    Ok(pb::SearchHybridRequest {
+        collection: collection.to_string(),
+        vector: query
+            .vector
+            .as_ref()
+            .map(embedding_to_pb)
+            .unwrap_or_default(),
+        text: query.text.clone(),
+        k: u32::try_from(query.k).map_err(|_| ConversionError::Domain("k out of range".into()))?,
+        filter: query.filter.as_ref().map(filter_to_pb),
+        metric: query.metric.map(|m| metric_to_pb(m) as i32),
+        rrf_k: query.rrf_k,
+        overfetch_factor: u32::try_from(query.overfetch_factor)
+            .map_err(|_| ConversionError::Domain("overfetch_factor out of range".into()))?,
+    })
+}
+
+/// Decodes a [`pb::Hit`] into a domain [`SearchHit`].
+///
+/// # Errors
+///
+/// Returns [`ConversionError::InvalidUuid`] when the id is not a valid UUID, or a
+/// payload conversion error when the payload is malformed.
+pub fn hit_from_pb(hit: pb::Hit) -> Result<SearchHit, ConversionError> {
+    let id = vector_id_from_pb(&hit.id)?;
+    let payload = hit.payload.map(payload_from_pb).transpose()?;
+    Ok(SearchHit {
+        id,
+        score: Score(hit.score),
+        payload,
+    })
+}
+
+/// Decodes a [`pb::SearchResponse`] into a list of domain [`SearchHit`]s.
+///
+/// # Errors
+///
+/// Propagates any [`ConversionError`] from decoding an individual hit.
+pub fn hits_from_pb(response: pb::SearchResponse) -> Result<Vec<SearchHit>, ConversionError> {
+    response.hits.into_iter().map(hit_from_pb).collect()
 }
 
 #[cfg(test)]
@@ -277,5 +349,66 @@ mod tests {
         assert_eq!(resp.hits.len(), 2);
         assert_eq!(resp.hits[0].id, id1.as_uuid().to_string());
         assert_eq!(resp.hits[1].id, id2.as_uuid().to_string());
+    }
+
+    #[test]
+    fn search_query_to_pb_maps_fields() {
+        use eidosdb_core::Embedding;
+        let query = SearchQuery {
+            embedding: Embedding::new(vec![0.1, 0.2, 0.3]).expect("embedding"),
+            k: 7,
+            metric: Some(Metric::Cosine),
+            filter: None,
+        };
+        let req = search_query_to_pb("notes", &query).expect("to pb");
+        assert_eq!(req.collection, "notes");
+        assert_eq!(req.k, 7);
+        assert_eq!(req.vector, vec![0.1_f32, 0.2, 0.3]);
+        assert_eq!(req.metric, Some(pb::Metric::Cosine as i32));
+    }
+
+    #[test]
+    fn search_query_round_trips_through_pb() {
+        use eidosdb_core::Embedding;
+        let query = SearchQuery {
+            embedding: Embedding::new(vec![1.0, 0.0]).expect("embedding"),
+            k: 3,
+            metric: None,
+            filter: None,
+        };
+        let req = search_query_to_pb("c", &query).expect("to pb");
+        let (name, back) = search_query_from_pb(req).expect("from pb");
+        assert_eq!(name, "c");
+        assert_eq!(back.k, 3);
+        assert_eq!(back.embedding.as_slice(), &[1.0_f32, 0.0]);
+    }
+
+    #[test]
+    fn hit_from_pb_round_trips() {
+        let id = VectorId::new();
+        let hit = SearchHit {
+            id,
+            score: Score(0.42),
+            payload: None,
+        };
+        let back = hit_from_pb(hit_to_pb(&hit)).expect("round trip");
+        assert_eq!(back.id, id);
+        assert!((back.score.0 - 0.42_f32).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hybrid_query_to_pb_empty_vector_when_none() {
+        let query = HybridQuery {
+            vector: None,
+            text: Some("hello".into()),
+            k: 5,
+            filter: None,
+            metric: None,
+            rrf_k: DEFAULT_RRF_K,
+            overfetch_factor: DEFAULT_OVERFETCH_FACTOR,
+        };
+        let req = hybrid_query_to_pb("notes", &query).expect("to pb");
+        assert!(req.vector.is_empty());
+        assert_eq!(req.text, Some("hello".to_string()));
     }
 }
