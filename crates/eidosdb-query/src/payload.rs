@@ -49,6 +49,14 @@ impl Payload {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Iterates over all field entries as `(name, value)` pairs.
+    ///
+    /// Order is deterministic (ascending by field name) because the backing store
+    /// is a [`BTreeMap`].
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &FieldValue)> {
+        self.0.iter()
+    }
 }
 
 fn check_finite(value: &Value) -> Result<(), PayloadError> {
