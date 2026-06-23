@@ -22,7 +22,7 @@ eidosdb-core = { path = "../eidosdb-core" }
 eidosdb-query = { path = "../eidosdb-query" }
 eidosdb-lexical = { path = "../eidosdb-lexical" }
 uuid = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }
