@@ -11,3 +11,6 @@ pub use payload::*;
 
 pub mod point;
 pub use point::*;
+
+pub mod search;
+pub use search::*;
