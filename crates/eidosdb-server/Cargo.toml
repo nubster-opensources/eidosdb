@@ -26,3 +26,5 @@ tracing = "0.1"
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio-stream = { version = "0.1", features = ["net"] }
