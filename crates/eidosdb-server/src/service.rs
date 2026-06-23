@@ -12,16 +12,22 @@ use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
     convert::{
         IndexTypeChoice, index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb,
+        point_from_pb,
     },
     pb::{
         self,
         eidos_db_server::{EidosDb, EidosDbServer},
     },
-    status::{conversion_error_to_status, not_found},
+    status::{conversion_error_to_status, not_found, query_error_to_status},
 };
 use tonic::{Request, Response, Status};
 
-use crate::{error::ServerError, meta::CollectionMeta, registry::Registry};
+use crate::{
+    collection_kind::CollectionKind,
+    error::ServerError,
+    meta::CollectionMeta,
+    registry::{CollectionHandle, Registry},
+};
 
 // ---------------------------------------------------------------------------
 // ServerError -> Status
@@ -57,6 +63,32 @@ impl EidosDbService {
     pub fn new(registry: Arc<Registry>) -> Self {
         Self { registry }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Blocking helper
+// ---------------------------------------------------------------------------
+
+/// Runs a closure that mutates a [`CollectionKind`] on a `spawn_blocking` thread.
+///
+/// The write-guard is acquired **inside** the blocking closure so that it is
+/// never held across an `await` point, which would violate Rust's `Send`
+/// requirements for futures.  The closure maps any [`tonic::Status`] error so
+/// that callers do not need to convert errors twice.
+async fn run_blocking<T, F>(handle: Arc<CollectionHandle>, f: F) -> Result<T, Status>
+where
+    F: FnOnce(&mut CollectionKind) -> Result<T, Status> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let mut guard = handle
+            .inner
+            .write()
+            .map_err(|_| Status::internal("lock poisoned"))?;
+        f(&mut guard)
+    })
+    .await
+    .map_err(|_| Status::internal("blocking task failed"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -216,18 +248,95 @@ impl EidosDb for EidosDbService {
     // Stubs — to be implemented in B6 / B7 / B8 / C
     // -----------------------------------------------------------------------
 
+    /// Inserts or updates a single point in a named collection.
+    ///
+    /// Returns `NOT_FOUND` when the collection does not exist,
+    /// `INVALID_ARGUMENT` when the point is missing, the vector dimension
+    /// does not match the collection, or the point cannot be decoded.
     async fn upsert(
         &self,
-        _request: Request<pb::UpsertRequest>,
+        request: Request<pb::UpsertRequest>,
     ) -> Result<Response<pb::UpsertResponse>, Status> {
-        Err(Status::unimplemented("upsert not yet implemented"))
+        let req = request.into_inner();
+
+        let handle = self
+            .registry
+            .get(&req.collection)
+            .ok_or_else(|| not_found(&req.collection))?;
+
+        let point = req
+            .point
+            .ok_or_else(|| Status::invalid_argument("missing point"))?;
+
+        if point.vector.len() != handle.meta.dimension.get() {
+            return Err(Status::invalid_argument(format!(
+                "vector dimension mismatch: expected {}, got {}",
+                handle.meta.dimension.get(),
+                point.vector.len(),
+            )));
+        }
+
+        let decoded = point_from_pb(point).map_err(|e| conversion_error_to_status(&e))?;
+
+        run_blocking(handle, move |kind| {
+            kind.upsert(
+                decoded.id,
+                decoded.embedding,
+                decoded.document.as_ref(),
+                decoded.payload,
+            )
+            .map_err(|e| query_error_to_status(&e))
+        })
+        .await?;
+
+        Ok(Response::new(pb::UpsertResponse {}))
     }
 
+    /// Inserts or updates a batch of points in a named collection.
+    ///
+    /// All points are decoded and validated before any write occurs.  The
+    /// entire batch is inserted sequentially under a single write-guard
+    /// acquisition.  Returns `NOT_FOUND` when the collection does not exist,
+    /// `INVALID_ARGUMENT` when any point is invalid or has the wrong dimension.
     async fn batch_upsert(
         &self,
-        _request: Request<pb::BatchUpsertRequest>,
+        request: Request<pb::BatchUpsertRequest>,
     ) -> Result<Response<pb::BatchUpsertResponse>, Status> {
-        Err(Status::unimplemented("batch_upsert not yet implemented"))
+        let req = request.into_inner();
+
+        let handle = self
+            .registry
+            .get(&req.collection)
+            .ok_or_else(|| not_found(&req.collection))?;
+
+        let expected_dim = handle.meta.dimension.get();
+
+        // Decode and validate all points before entering the blocking section.
+        let decoded_points = req
+            .points
+            .into_iter()
+            .map(|point| {
+                if point.vector.len() != expected_dim {
+                    return Err(Status::invalid_argument(format!(
+                        "vector dimension mismatch: expected {expected_dim}, got {}",
+                        point.vector.len(),
+                    )));
+                }
+                point_from_pb(point).map_err(|e| conversion_error_to_status(&e))
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
+
+        let count = decoded_points.len();
+
+        run_blocking(handle, move |kind| {
+            for d in decoded_points {
+                kind.upsert(d.id, d.embedding, d.document.as_ref(), d.payload)
+                    .map_err(|e| query_error_to_status(&e))?;
+            }
+            Ok(u64::try_from(count).unwrap_or(u64::MAX))
+        })
+        .await
+        .map(|upserted| Response::new(pb::BatchUpsertResponse { upserted }))
     }
 
     async fn bulk_upsert(

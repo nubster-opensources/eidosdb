@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use eidosdb_core::VectorId;
 use eidosdb_proto::pb;
 use eidosdb_server::registry::Registry;
 use eidosdb_server::service::EidosDbService;
@@ -120,6 +121,137 @@ async fn describe_unknown_is_not_found() {
         .expect_err("should fail");
 
     assert_eq!(err.code(), tonic::Code::NotFound);
+}
+
+// ---------------------------------------------------------------------------
+// B6 helpers
+// ---------------------------------------------------------------------------
+
+/// Creates a new HNSW collection with the given name and dimension.
+async fn create_hnsw(client: &mut EidosDbClient<Channel>, name: &str, dim: u32) {
+    client
+        .create_collection(pb::CreateCollectionRequest {
+            name: name.into(),
+            metric: pb::Metric::Cosine as i32,
+            dimension: dim,
+            index_type: pb::IndexType::Hnsw as i32,
+            hnsw_params: None,
+        })
+        .await
+        .expect("create collection");
+}
+
+// ---------------------------------------------------------------------------
+// B6 tests (upsert / batch_upsert)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn upsert_then_search_via_describe_count() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let id = VectorId::new().as_uuid().to_string();
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id,
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect("upsert");
+    let info = client
+        .describe_collection(pb::DescribeCollectionRequest {
+            name: "notes".into(),
+        })
+        .await
+        .expect("describe")
+        .into_inner();
+    assert_eq!(info.count, 1);
+}
+
+#[tokio::test]
+async fn batch_upsert_loads_all_points() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "batch-col", 3).await;
+    let points: Vec<_> = (0..50_u32)
+        .map(|i| pb::Point {
+            id: VectorId::new().as_uuid().to_string(),
+            vector: vec![f32::from(u16::try_from(i).expect("fits u16")), 0.0, 0.0],
+            document: None,
+            payload: None,
+        })
+        .collect();
+    let r = client
+        .batch_upsert(pb::BatchUpsertRequest {
+            collection: "batch-col".into(),
+            points,
+        })
+        .await
+        .expect("batch_upsert")
+        .into_inner();
+    assert_eq!(r.upserted, 50);
+    let info = client
+        .describe_collection(pb::DescribeCollectionRequest {
+            name: "batch-col".into(),
+        })
+        .await
+        .expect("describe")
+        .into_inner();
+    assert_eq!(info.count, 50);
+}
+
+#[tokio::test]
+async fn upsert_wrong_dimension_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "dim-col", 3).await;
+    let err = client
+        .upsert(pb::UpsertRequest {
+            collection: "dim-col".into(),
+            point: Some(pb::Point {
+                id: VectorId::new().as_uuid().to_string(),
+                vector: vec![1.0, 2.0], // wrong: 2 components instead of 3
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect_err("should fail on wrong dimension");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn upsert_unknown_collection_is_not_found() {
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .upsert(pb::UpsertRequest {
+            collection: "ghost".into(),
+            point: Some(pb::Point {
+                id: VectorId::new().as_uuid().to_string(),
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect_err("should fail on unknown collection");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+}
+
+#[tokio::test]
+async fn upsert_missing_point_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "empty-pt", 3).await;
+    let err = client
+        .upsert(pb::UpsertRequest {
+            collection: "empty-pt".into(),
+            point: None,
+        })
+        .await
+        .expect_err("should fail on missing point");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
 
 #[tokio::test]
