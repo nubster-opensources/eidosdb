@@ -10,7 +10,9 @@ use std::{net::SocketAddr, sync::Arc};
 use eidosdb_core::Dimension;
 use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
-    convert::{index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb},
+    convert::{
+        IndexTypeChoice, index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb,
+    },
     pb::{
         self,
         eidos_db_server::{EidosDb, EidosDbServer},
@@ -83,25 +85,56 @@ impl EidosDb for EidosDbService {
             .map_err(|_| Status::invalid_argument("unknown metric value"))?;
         let metric = metric_from_pb(pb_metric).map_err(|e| conversion_error_to_status(&e))?;
 
+        // Reject zero dimension early.
+        if req.dimension == 0 {
+            return Err(Status::invalid_argument(
+                "dimension must be greater than zero",
+            ));
+        }
+        let dimension = Dimension(
+            usize::try_from(req.dimension)
+                .map_err(|_| Status::invalid_argument("dimension out of range"))?,
+        );
+
         // Decode index type (i32 -> pb enum -> local choice).
         let pb_index_type = pb::IndexType::try_from(req.index_type)
             .map_err(|_| Status::invalid_argument("unknown index_type value"))?;
         let index_type =
             index_type_from_pb(pb_index_type).map_err(|e| conversion_error_to_status(&e))?;
 
-        // Build optional HnswConfig from the wire params.
-        let hnsw = req.hnsw_params.map(|p| HnswConfig {
-            metric,
-            m: p.m as usize,
-            ef_construction: p.ef_construction as usize,
-            ef_search: p.ef_search as usize,
-            seed: p.seed,
-        });
+        // Build HnswConfig only when index type is HNSW; merge defaults for zero fields.
+        let hnsw = if matches!(index_type, IndexTypeChoice::Hnsw) {
+            let p = req.hnsw_params.unwrap_or_default();
+            let def = HnswConfig::default();
+            Some(HnswConfig {
+                metric,
+                m: if p.m == 0 {
+                    def.m
+                } else {
+                    usize::try_from(p.m).map_err(|_| Status::invalid_argument("m out of range"))?
+                },
+                ef_construction: if p.ef_construction == 0 {
+                    def.ef_construction
+                } else {
+                    usize::try_from(p.ef_construction)
+                        .map_err(|_| Status::invalid_argument("ef_construction out of range"))?
+                },
+                ef_search: if p.ef_search == 0 {
+                    def.ef_search
+                } else {
+                    usize::try_from(p.ef_search)
+                        .map_err(|_| Status::invalid_argument("ef_search out of range"))?
+                },
+                seed: if p.seed == 0 { def.seed } else { p.seed },
+            })
+        } else {
+            None
+        };
 
         let meta = CollectionMeta {
             name: req.name,
             metric,
-            dimension: Dimension(req.dimension as usize),
+            dimension,
             index_type,
             hnsw,
         };
@@ -165,10 +198,7 @@ impl EidosDb for EidosDbService {
     ) -> Result<Response<pb::CollectionInfo>, Status> {
         let name = request.into_inner().name;
 
-        let handle = self
-            .registry
-            .get(&name)
-            .ok_or_else(|| not_found(&format!("collection:{name}")))?;
+        let handle = self.registry.get(&name).ok_or_else(|| not_found(&name))?;
 
         let meta = handle.meta.clone();
         let count = handle.inner.read().map(|g| g.len() as u64).unwrap_or(0);

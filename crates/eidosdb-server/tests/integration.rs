@@ -139,3 +139,19 @@ async fn create_unspecified_metric_is_invalid_argument() {
 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
+
+#[tokio::test]
+async fn create_zero_dimension_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .create_collection(pb::CreateCollectionRequest {
+            name: "z".into(),
+            metric: pb::Metric::Cosine as i32,
+            dimension: 0,
+            index_type: pb::IndexType::Flat as i32,
+            hnsw_params: None,
+        })
+        .await
+        .expect_err("should reject zero dimension");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
