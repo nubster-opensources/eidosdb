@@ -1,0 +1,28 @@
+[package]
+name = "eidosdb-server"
+description = "gRPC server binary and collection management for EidosDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+eidosdb-core = { path = "../eidosdb-core" }
+eidosdb-query = { path = "../eidosdb-query" }
+eidosdb-lexical = { path = "../eidosdb-lexical" }
+eidosdb-hnsw = { path = "../eidosdb-hnsw" }
+eidosdb-storage = { path = "../eidosdb-storage" }
+eidosdb-proto = { path = "../eidosdb-proto" }
+tonic = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }

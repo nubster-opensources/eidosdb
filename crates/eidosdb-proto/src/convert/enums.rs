@@ -3,11 +3,12 @@
 use crate::error::ConversionError;
 use crate::pb;
 use eidosdb_core::Metric;
+use serde::{Deserialize, Serialize};
 
 /// Local enum representing the index algorithm to use when creating a collection.
 ///
 /// There is no domain-level `IndexType`; this choice is local to the gRPC layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IndexTypeChoice {
     /// Flat brute-force index.
     Flat,
