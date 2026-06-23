@@ -1,0 +1,4 @@
+syntax = "proto3";
+package eidosdb.v1;
+message Ping { string message = 1; }
+service EidosDb { rpc PingRpc(Ping) returns (Ping); }

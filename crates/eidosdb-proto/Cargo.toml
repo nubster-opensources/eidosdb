@@ -1,0 +1,30 @@
+[package]
+name = "eidosdb-proto"
+description = "gRPC wire contract and generated tonic types for EidosDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+prost = { workspace = true }
+eidosdb-core = { path = "../eidosdb-core" }
+eidosdb-query = { path = "../eidosdb-query" }
+eidosdb-lexical = { path = "../eidosdb-lexical" }
+uuid = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
