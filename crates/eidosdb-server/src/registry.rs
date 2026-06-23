@@ -108,9 +108,7 @@ impl Registry {
         // Clone the fields needed to build the index so that `meta` stays intact
         // and can be moved into CollectionHandle below.
         let kind = match meta.index_type {
-            IndexTypeChoice::Flat => {
-                CollectionKind::open_flat(&dir, meta.metric, meta.dimension)?
-            }
+            IndexTypeChoice::Flat => CollectionKind::open_flat(&dir, meta.metric, meta.dimension)?,
             IndexTypeChoice::Hnsw => {
                 let config = meta.hnsw.unwrap_or_default();
                 CollectionKind::create_hnsw(&dir, config, meta.dimension)?
@@ -142,15 +140,18 @@ impl Registry {
     /// Returns [`ServerError`] if the map lock is poisoned or if the
     /// directory cannot be deleted.
     pub fn drop_collection(&self, name: &str) -> Result<bool, ServerError> {
-        let mut guard = self
-            .map
-            .write()
-            .map_err(|_| ServerError::Storage("lock poisoned".into()))?;
+        let handle = {
+            let mut guard = self
+                .map
+                .write()
+                .map_err(|_| ServerError::Storage("lock poisoned".into()))?;
+            guard.remove(name)
+        };
 
-        match guard.remove(name) {
+        match handle {
             None => Ok(false),
-            Some(handle) => {
-                std::fs::remove_dir_all(&handle.dir).map_err(|e| ServerError::Io(e.to_string()))?;
+            Some(h) => {
+                std::fs::remove_dir_all(&h.dir).map_err(|e| ServerError::Io(e.to_string()))?;
                 Ok(true)
             }
         }
@@ -171,6 +172,9 @@ impl Registry {
 
     /// Returns a clone of the [`Arc`]-wrapped handle for `name`, or `None`
     /// if no such collection is registered.
+    ///
+    /// Returns `None` if the collection is absent, or if the map lock is poisoned
+    /// (lock-poison implies the server is in an unrecoverable state).
     ///
     /// Cloning an [`Arc`] is `O(1)` and does not hold the map lock after return.
     #[must_use]
