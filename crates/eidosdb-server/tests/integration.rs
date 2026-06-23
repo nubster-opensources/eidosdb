@@ -287,3 +287,117 @@ async fn create_zero_dimension_is_invalid_argument() {
         .expect_err("should reject zero dimension");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
+
+// ---------------------------------------------------------------------------
+// B7 tests (delete / compact)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn delete_existing_returns_existed_true() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let id = VectorId::new().as_uuid().to_string();
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: id.clone(),
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect("upsert");
+    let r = client
+        .delete(pb::DeleteRequest {
+            collection: "notes".into(),
+            id,
+        })
+        .await
+        .expect("delete")
+        .into_inner();
+    assert!(r.existed);
+}
+
+#[tokio::test]
+async fn delete_absent_returns_existed_false() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let id = VectorId::new().as_uuid().to_string();
+    let r = client
+        .delete(pb::DeleteRequest {
+            collection: "notes".into(),
+            id,
+        })
+        .await
+        .expect("delete")
+        .into_inner();
+    assert!(!r.existed);
+}
+
+#[tokio::test]
+async fn delete_unknown_collection_is_not_found() {
+    let (mut client, _dir) = start_server().await;
+    let id = VectorId::new().as_uuid().to_string();
+    let err = client
+        .delete(pb::DeleteRequest {
+            collection: "ghost".into(),
+            id,
+        })
+        .await
+        .expect_err("nf");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+}
+
+#[tokio::test]
+async fn compact_after_delete_succeeds() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let id = VectorId::new().as_uuid().to_string();
+    client
+        .upsert(pb::UpsertRequest {
+            collection: "notes".into(),
+            point: Some(pb::Point {
+                id: id.clone(),
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: None,
+            }),
+        })
+        .await
+        .expect("upsert");
+    client
+        .delete(pb::DeleteRequest {
+            collection: "notes".into(),
+            id,
+        })
+        .await
+        .expect("delete");
+    client
+        .compact(pb::CompactRequest {
+            collection: "notes".into(),
+        })
+        .await
+        .expect("compact");
+    let info = client
+        .describe_collection(pb::DescribeCollectionRequest {
+            name: "notes".into(),
+        })
+        .await
+        .expect("describe")
+        .into_inner();
+    assert_eq!(info.count, 0);
+}
+
+#[tokio::test]
+async fn compact_unknown_collection_is_not_found() {
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .compact(pb::CompactRequest {
+            collection: "ghost".into(),
+        })
+        .await
+        .expect_err("nf");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+}

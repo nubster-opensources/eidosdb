@@ -12,7 +12,7 @@ use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
     convert::{
         IndexTypeChoice, index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb,
-        point_from_pb,
+        point_from_pb, vector_id_from_pb,
     },
     pb::{
         self,
@@ -348,9 +348,23 @@ impl EidosDb for EidosDbService {
 
     async fn delete(
         &self,
-        _request: Request<pb::DeleteRequest>,
+        request: Request<pb::DeleteRequest>,
     ) -> Result<Response<pb::DeleteResponse>, Status> {
-        Err(Status::unimplemented("delete not yet implemented"))
+        let req = request.into_inner();
+
+        let handle = self
+            .registry
+            .get(&req.collection)
+            .ok_or_else(|| not_found(&req.collection))?;
+
+        let id = vector_id_from_pb(&req.id).map_err(|e| conversion_error_to_status(&e))?;
+
+        let existed = run_blocking(handle, move |kind| {
+            kind.delete(&id).map_err(|e| query_error_to_status(&e))
+        })
+        .await?;
+
+        Ok(Response::new(pb::DeleteResponse { existed }))
     }
 
     async fn search(
@@ -369,9 +383,21 @@ impl EidosDb for EidosDbService {
 
     async fn compact(
         &self,
-        _request: Request<pb::CompactRequest>,
+        request: Request<pb::CompactRequest>,
     ) -> Result<Response<pb::CompactResponse>, Status> {
-        Err(Status::unimplemented("compact not yet implemented"))
+        let req = request.into_inner();
+
+        let handle = self
+            .registry
+            .get(&req.collection)
+            .ok_or_else(|| not_found(&req.collection))?;
+
+        run_blocking(handle, |kind| {
+            kind.compact().map_err(|e| server_error_to_status(&e))
+        })
+        .await?;
+
+        Ok(Response::new(pb::CompactResponse {}))
     }
 }
 

@@ -244,6 +244,28 @@ impl CollectionKind {
             Self::Hnsw(c) => c.search_hybrid(query),
         }
     }
+
+    /// Compacts the vector index, reclaiming space freed by deletions.
+    ///
+    /// Only the vector index is compacted. Lexical and payload stores are
+    /// excluded from compaction in V0.1 (out of scope).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ServerError::Index`] if the flat index fails to compact, or
+    /// [`ServerError::Storage`] if the HNSW index fails to compact.
+    pub fn compact(&mut self) -> Result<(), ServerError> {
+        match self {
+            Self::Flat(c) => c
+                .index_mut()
+                .compact()
+                .map_err(|e| ServerError::Index(e.to_string())),
+            Self::Hnsw(c) => c
+                .index_mut()
+                .compact()
+                .map_err(|e| ServerError::Storage(e.to_string())),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

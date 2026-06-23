@@ -80,6 +80,15 @@ impl<I: VectorIndex, L: LexicalIndex, P: PayloadStore> Collection<I, L, P> {
         Ok(())
     }
 
+    /// Returns a mutable reference to the underlying vector index.
+    ///
+    /// Used by maintenance operations such as compaction that operate directly
+    /// on the index layer. Lexical and payload stores are not exposed here
+    /// because compaction of those components is out of scope for V0.1.
+    pub fn index_mut(&mut self) -> &mut I {
+        &mut self.index
+    }
+
     /// Deletes a vector, its document, and its payload, returning whether the
     /// vector was present.
     pub fn delete(&mut self, id: &VectorId) -> Result<bool, QueryError> {
