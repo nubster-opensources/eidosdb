@@ -690,3 +690,69 @@ async fn search_hybrid_wrong_vector_dimension_is_invalid_argument() {
         .expect_err("dim");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
+
+// ---------------------------------------------------------------------------
+// B9 tests (BulkUpsert stub + concurrency safety)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn bulk_upsert_is_unimplemented_for_now() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let outbound = tokio_stream::iter(vec![pb::BulkUpsertRequest {
+        collection: "notes".into(),
+        points: vec![],
+    }]);
+    let err = client
+        .bulk_upsert(outbound)
+        .await
+        .expect_err("bulk_upsert should be unimplemented");
+    assert_eq!(err.code(), tonic::Code::Unimplemented);
+}
+
+#[tokio::test]
+async fn concurrent_searches_and_upserts_do_not_panic() {
+    // Exercises the per-collection RwLock + spawn_blocking model under a mix of
+    // readers and writers.  Concurrent reads run in parallel under the shared
+    // guard; writes take the exclusive guard.  A guard held across an await, or
+    // a panic poisoning the lock, would surface as a joined-task or transport
+    // error here.
+    let (client, _dir) = start_server().await;
+    create_hnsw(&mut client.clone(), "notes", 3).await;
+
+    let mut handles = Vec::new();
+    for i in 0..20u32 {
+        let mut c = client.clone();
+        if i % 2 == 0 {
+            handles.push(tokio::spawn(async move {
+                c.upsert(pb::UpsertRequest {
+                    collection: "notes".into(),
+                    point: Some(pb::Point {
+                        id: VectorId::new().as_uuid().to_string(),
+                        vector: vec![f32::from(u16::try_from(i).expect("fits u16")), 0.0, 0.0],
+                        document: None,
+                        payload: None,
+                    }),
+                })
+                .await
+                .expect("concurrent upsert");
+            }));
+        } else {
+            handles.push(tokio::spawn(async move {
+                c.search(pb::SearchRequest {
+                    collection: "notes".into(),
+                    vector: vec![1.0, 0.0, 0.0],
+                    k: 3,
+                    metric: None,
+                    filter: None,
+                })
+                .await
+                .expect("concurrent search");
+            }));
+        }
+    }
+
+    for h in handles {
+        h.await.expect("task joined without panic");
+    }
+}
