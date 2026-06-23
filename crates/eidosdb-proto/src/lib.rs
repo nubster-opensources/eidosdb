@@ -5,3 +5,6 @@ pub mod pb {
     #![allow(clippy::all, clippy::pedantic, missing_docs)]
     tonic::include_proto!("eidosdb.v1");
 }
+
+pub mod convert;
+pub mod error;
