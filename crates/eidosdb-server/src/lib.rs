@@ -6,3 +6,4 @@
 pub mod collection_kind;
 pub mod error;
 pub mod meta;
+pub mod registry;

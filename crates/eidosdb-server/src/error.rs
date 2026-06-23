@@ -11,6 +11,10 @@ pub enum ServerError {
     Serde(String),
     /// A collection name is invalid.
     BadName(String),
+    /// A collection with that name already exists.
+    ///
+    /// Maps to gRPC status `ALREADY_EXISTS` (code 6) in the transport layer.
+    AlreadyExists(String),
     /// A storage-layer error occurred.
     Storage(String),
     /// An index-layer error occurred.
@@ -23,6 +27,7 @@ impl fmt::Display for ServerError {
             Self::Io(msg) => write!(f, "I/O error: {msg}"),
             Self::Serde(msg) => write!(f, "serialisation error: {msg}"),
             Self::BadName(msg) => write!(f, "invalid collection name: {msg}"),
+            Self::AlreadyExists(msg) => write!(f, "collection already exists: {msg}"),
             Self::Storage(msg) => write!(f, "storage error: {msg}"),
             Self::Index(msg) => write!(f, "index error: {msg}"),
         }
