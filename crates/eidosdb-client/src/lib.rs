@@ -135,6 +135,7 @@ fn collection_info_to_view(info: pb::CollectionInfo) -> Result<CollectionMetaVie
 }
 
 /// A typed async gRPC client for an `EidosDB` server.
+#[derive(Clone)]
 pub struct EidosClient {
     inner: pb::eidos_db_client::EidosDbClient<Channel>,
 }

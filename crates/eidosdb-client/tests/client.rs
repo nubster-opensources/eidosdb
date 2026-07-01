@@ -252,3 +252,20 @@ async fn delete_by_filter_removes_matching_points() {
         1
     );
 }
+
+#[tokio::test]
+async fn client_clone_shares_connection() {
+    let (endpoint, _dir) = spawn_server().await;
+    let client = EidosClient::connect(endpoint).await.expect("connect");
+    let mut writer = client.clone();
+    let mut reader = client.clone();
+    create(&mut writer, "notes", 3).await;
+    assert_eq!(
+        reader
+            .describe_collection("notes")
+            .await
+            .expect("describe")
+            .count,
+        0
+    );
+}
