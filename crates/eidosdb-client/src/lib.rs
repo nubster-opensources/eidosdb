@@ -300,8 +300,7 @@ impl EidosClient {
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError::Status`] if the server rejects the request,
-    /// or [`ClientError::Conversion`] if the filter cannot be encoded.
+    /// Returns [`ClientError::Status`] if the server rejects the request.
     pub async fn delete_by_filter(
         &mut self,
         collection: &str,
