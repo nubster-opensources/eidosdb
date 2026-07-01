@@ -98,6 +98,23 @@ impl<I: VectorIndex, L: LexicalIndex, P: PayloadStore> Collection<I, L, P> {
         Ok(removed)
     }
 
+    /// Deletes every vector whose payload matches `filter`, returning the count removed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`QueryError`] from the payload store or the underlying delete.
+    pub fn delete_by_filter(&mut self, filter: &Filter) -> Result<u64, QueryError> {
+        let compiled = filter.compile();
+        let matching = self.payloads.matching_ids(&compiled)?;
+        let mut count = 0u64;
+        for id in matching {
+            if self.delete(&id)? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     /// Runs a filtered, metric-aware search and hydrates payloads onto the hits.
     pub fn search(&self, query: &SearchQuery) -> Result<Vec<SearchHit>, QueryError> {
         let metric = query.metric.unwrap_or_else(|| self.index.metric());
@@ -231,6 +248,31 @@ mod tests {
         assert!(c.delete(&id).expect("delete"));
         assert!(!c.delete(&id).expect("delete again"));
         assert_eq!(c.len(), 0);
+    }
+
+    #[test]
+    fn delete_by_filter_removes_only_matching_points() {
+        let mut c = collection();
+        let wiki = VectorId::new();
+        let blog = VectorId::new();
+        c.upsert(wiki, embedding(&[1.0, 0.0]), None, Some(payload("wiki")))
+            .expect("wiki");
+        c.upsert(blog, embedding(&[1.0, 0.0]), None, Some(payload("blog")))
+            .expect("blog");
+        let deleted = c
+            .delete_by_filter(&Filter::Eq("source".into(), Value::Text("wiki".into())))
+            .expect("delete_by_filter");
+        assert_eq!(deleted, 1);
+        let hits = c
+            .search(&SearchQuery {
+                embedding: embedding(&[1.0, 0.0]),
+                k: 10,
+                metric: None,
+                filter: None,
+            })
+            .expect("search");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, blog);
     }
 
     use proptest::prelude::*;
