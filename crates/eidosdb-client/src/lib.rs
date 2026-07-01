@@ -12,12 +12,13 @@ use eidosdb_core::{Dimension, Embedding, Metric, VectorId};
 use eidosdb_hnsw::HnswConfig;
 use eidosdb_lexical::Document;
 use eidosdb_proto::convert::{
-    IndexTypeChoice, hits_from_pb, hybrid_query_to_pb, index_type_from_pb, index_type_to_pb,
-    metric_from_pb, metric_to_pb, point_to_pb, search_query_to_pb, vector_id_to_pb,
+    IndexTypeChoice, delete_by_filter_to_pb, hits_from_pb, hybrid_query_to_pb, index_type_from_pb,
+    index_type_to_pb, metric_from_pb, metric_to_pb, point_to_pb, search_query_to_pb,
+    vector_id_to_pb,
 };
 use eidosdb_proto::error::ConversionError;
 use eidosdb_proto::pb;
-use eidosdb_query::{HybridQuery, Payload, SearchHit, SearchQuery};
+use eidosdb_query::{Filter, HybridQuery, Payload, SearchHit, SearchQuery};
 use tonic::transport::Channel;
 
 /// Errors returned by [`EidosClient`] operations.
@@ -293,6 +294,24 @@ impl EidosClient {
             })
             .await?;
         Ok(response.into_inner().existed)
+    }
+
+    /// Deletes all points matching `filter`, returning the number deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Status`] if the server rejects the request,
+    /// or [`ClientError::Conversion`] if the filter cannot be encoded.
+    pub async fn delete_by_filter(
+        &mut self,
+        collection: &str,
+        filter: Filter,
+    ) -> Result<u64, ClientError> {
+        let response = self
+            .inner
+            .delete_by_filter(delete_by_filter_to_pb(collection, &filter))
+            .await?;
+        Ok(response.into_inner().deleted)
     }
 
     /// Compacts a collection's vector index.
