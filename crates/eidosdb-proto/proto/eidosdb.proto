@@ -123,6 +123,8 @@ message BulkUpsertRequest { string collection = 1; repeated Point points = 2; }
 message BulkUpsertResponse { uint64 upserted = 1; }
 message DeleteRequest { string collection = 1; string id = 2; }
 message DeleteResponse { bool existed = 1; }
+message DeleteByFilterRequest { string collection = 1; Filter filter = 2; }
+message DeleteByFilterResponse { uint64 deleted = 1; }
 message CompactRequest { string collection = 1; }
 message CompactResponse {}
 
@@ -135,6 +137,7 @@ service EidosDb {
   rpc BatchUpsert(BatchUpsertRequest) returns (BatchUpsertResponse);
   rpc BulkUpsert(stream BulkUpsertRequest) returns (BulkUpsertResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc DeleteByFilter(DeleteByFilterRequest) returns (DeleteByFilterResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
   rpc SearchHybrid(SearchHybridRequest) returns (SearchResponse);
   rpc Compact(CompactRequest) returns (CompactResponse);
