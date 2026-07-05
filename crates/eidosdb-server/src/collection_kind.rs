@@ -20,7 +20,7 @@ use std::path::Path;
 use eidosdb_core::{Dimension, Embedding, Metric, VectorId};
 use eidosdb_hnsw::HnswConfig;
 use eidosdb_lexical::Document;
-use eidosdb_query::{Collection, HybridQuery, Payload, QueryError, SearchHit, SearchQuery};
+use eidosdb_query::{Collection, Filter, HybridQuery, Payload, QueryError, SearchHit, SearchQuery};
 use eidosdb_storage::{
     PersistentFlatIndex, PersistentHnswIndex, PersistentLexicalIndex, PersistentPayloadStore,
 };
@@ -218,6 +218,18 @@ impl CollectionKind {
         match self {
             Self::Flat(c) => c.delete(id),
             Self::Hnsw(c) => c.delete(id),
+        }
+    }
+
+    /// Deletes all vectors matching `filter`, returning the count removed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`QueryError`] from the inner collection.
+    pub fn delete_by_filter(&mut self, filter: &Filter) -> Result<u64, QueryError> {
+        match self {
+            Self::Flat(c) => c.delete_by_filter(filter),
+            Self::Hnsw(c) => c.delete_by_filter(filter),
         }
     }
 

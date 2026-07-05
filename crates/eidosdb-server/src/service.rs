@@ -11,8 +11,9 @@ use eidosdb_core::Dimension;
 use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
     convert::{
-        IndexTypeChoice, hits_to_pb, hybrid_query_from_pb, index_type_from_pb, index_type_to_pb,
-        metric_from_pb, metric_to_pb, point_from_pb, search_query_from_pb, vector_id_from_pb,
+        IndexTypeChoice, delete_by_filter_from_pb, hits_to_pb, hybrid_query_from_pb,
+        index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb, point_from_pb,
+        search_query_from_pb, vector_id_from_pb,
     },
     pb::{
         self,
@@ -451,6 +452,24 @@ impl EidosDb for EidosDbService {
         .await?;
 
         Ok(Response::new(pb::DeleteResponse { existed }))
+    }
+
+    async fn delete_by_filter(
+        &self,
+        request: Request<pb::DeleteByFilterRequest>,
+    ) -> Result<Response<pb::DeleteByFilterResponse>, Status> {
+        let (collection, filter) = delete_by_filter_from_pb(request.into_inner())
+            .map_err(|e| conversion_error_to_status(&e))?;
+        let handle = self
+            .registry
+            .get(&collection)
+            .ok_or_else(|| not_found(&collection))?;
+        let deleted = run_blocking(handle, move |kind| {
+            kind.delete_by_filter(&filter)
+                .map_err(|e| query_error_to_status(&e))
+        })
+        .await?;
+        Ok(Response::new(pb::DeleteByFilterResponse { deleted }))
     }
 
     /// Runs a dense vector search against a named collection.

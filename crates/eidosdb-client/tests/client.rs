@@ -9,7 +9,7 @@ use eidosdb_client::{CollectionSpec, EidosClient, PointInput};
 use eidosdb_core::{Dimension, Embedding, Metric, VectorId};
 use eidosdb_proto::convert::IndexTypeChoice;
 use eidosdb_proto::pb::eidos_db_server::EidosDbServer;
-use eidosdb_query::SearchQuery;
+use eidosdb_query::{FieldValue, Filter, Payload, SearchQuery, Value};
 use eidosdb_server::{registry::Registry, service::EidosDbService};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -195,4 +195,77 @@ async fn describe_unknown_is_not_found_via_client() {
         }
         other => panic!("expected Status error, got {other}"),
     }
+}
+
+#[tokio::test]
+async fn delete_by_filter_removes_matching_points() {
+    let (endpoint, _dir) = spawn_server().await;
+    let mut client = EidosClient::connect(endpoint).await.expect("connect");
+    create(&mut client, "notes", 3).await;
+
+    let source_field = |source: &str| {
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert(
+            "source".to_string(),
+            FieldValue::Scalar(Value::Text(source.into())),
+        );
+        Payload::new(fields).expect("payload")
+    };
+
+    let wiki = VectorId::new();
+    let blog = VectorId::new();
+    client
+        .upsert(
+            "notes",
+            wiki,
+            Embedding::new(vec![1.0, 0.0, 0.0]).unwrap(),
+            None,
+            Some(source_field("wiki")),
+        )
+        .await
+        .expect("wiki");
+    client
+        .upsert(
+            "notes",
+            blog,
+            Embedding::new(vec![0.0, 1.0, 0.0]).unwrap(),
+            None,
+            Some(source_field("blog")),
+        )
+        .await
+        .expect("blog");
+
+    let deleted = client
+        .delete_by_filter(
+            "notes",
+            Filter::Eq("source".into(), Value::Text("wiki".into())),
+        )
+        .await
+        .expect("delete_by_filter");
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        client
+            .describe_collection("notes")
+            .await
+            .expect("describe")
+            .count,
+        1
+    );
+}
+
+#[tokio::test]
+async fn client_clone_shares_connection() {
+    let (endpoint, _dir) = spawn_server().await;
+    let client = EidosClient::connect(endpoint).await.expect("connect");
+    let mut writer = client.clone();
+    let mut reader = client.clone();
+    create(&mut writer, "notes", 3).await;
+    assert_eq!(
+        reader
+            .describe_collection("notes")
+            .await
+            .expect("describe")
+            .count,
+        0
+    );
 }

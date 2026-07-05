@@ -1,5 +1,8 @@
 //! Wire-to-domain and domain-to-wire conversion helpers.
 
+pub mod delete;
+pub use delete::*;
+
 pub mod enums;
 pub use enums::*;
 
