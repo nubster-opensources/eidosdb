@@ -54,7 +54,7 @@ pub fn query_error_to_status(error: &QueryError) -> Status {
 
 /// Converts a [`ConversionError`] into a [`tonic::Status`].
 ///
-/// All conversion errors map to `INVALID_ARGUMENT` — they represent malformed
+/// All conversion errors map to `INVALID_ARGUMENT`: they represent malformed
 /// input from the caller.
 #[must_use]
 pub fn conversion_error_to_status(error: &ConversionError) -> Status {

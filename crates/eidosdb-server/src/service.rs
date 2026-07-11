@@ -268,7 +268,7 @@ impl EidosDb for EidosDbService {
     }
 
     // -----------------------------------------------------------------------
-    // Stubs — to be implemented in B6 / B7 / B8 / C
+    // Stubs: to be implemented in B6 / B7 / B8 / C
     // -----------------------------------------------------------------------
 
     /// Inserts or updates a single point in a named collection.
