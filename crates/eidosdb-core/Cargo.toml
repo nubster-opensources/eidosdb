@@ -1,6 +1,6 @@
 [package]
 name = "eidosdb-core"
-description = "Core domain, VectorIndex port and the Flat exact adapter for EidosDB."
+description = "Pure-Rust vector database for the Nubster Data Plane: ANN similarity search, single binary, edge-ready."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
