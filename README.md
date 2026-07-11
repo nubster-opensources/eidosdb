@@ -65,14 +65,9 @@ self-hosted binary:
 
 ## Documentation
 
-- [Architecture overview](docs/explanation/architecture.md) - how the crates
-  fit together.
-- [HNSW index](docs/reference/hnsw.md) - configuration knobs and performance
-  characteristics.
-- [Hybrid search (RRF)](docs/reference/hybrid-search.md) - combining dense and
-  lexical scores.
-- [Storage layer](docs/reference/storage.md) - persistence model and
-  durability guarantees.
+Dedicated guides (architecture overview, HNSW tuning, hybrid search, storage
+layer) are not written yet. Until then, the crate-level rustdoc comments are
+the source of truth; build them locally with `cargo doc --open`.
 
 > Documentation is a work in progress. Contributions welcome.
 
