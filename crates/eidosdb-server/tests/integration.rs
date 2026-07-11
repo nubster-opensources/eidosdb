@@ -29,7 +29,7 @@ use tonic::transport::{Channel, Server};
 /// 3. Bind `127.0.0.1:0` (port 0 = OS picks a free ephemeral port).
 /// 4. Capture the real address **before** moving the listener.
 /// 5. Wrap the listener in a `TcpListenerStream` and spawn
-///    `Server::serve_with_incoming` — avoids any fixed-port race.
+///    `Server::serve_with_incoming`: avoids any fixed-port race.
 /// 6. Connect `EidosDbClient` and return `(client, tempdir)`.
 ///
 /// Reused unchanged by B6 / B7 / B8 / C.

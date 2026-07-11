@@ -1,7 +1,7 @@
 //! Collection registry: owns all named collections and manages their lifecycle.
 //!
 //! The [`Registry`] holds a map of collection names to [`CollectionHandle`]s.
-//! It does not scan the disk on startup — that is deferred to B4 (reload).
+//! It does not scan the disk on startup: that is deferred to B4 (reload).
 
 use std::{
     collections::HashMap,
@@ -160,8 +160,8 @@ impl Registry {
     /// Creates a new collection described by `meta`.
     ///
     /// Steps performed in order:
-    /// 1. Validate `meta.name` — returns [`ServerError::BadName`] on failure.
-    /// 2. Reject duplicates — returns [`ServerError::AlreadyExists`] if the
+    /// 1. Validate `meta.name`: returns [`ServerError::BadName`] on failure.
+    /// 2. Reject duplicates: returns [`ServerError::AlreadyExists`] if the
     ///    name is already registered.
     /// 3. Create the collection directory on disk.
     /// 4. Write `collection.meta` to disk.
@@ -173,12 +173,12 @@ impl Registry {
     /// Returns [`ServerError`] if name validation fails, the name is already
     /// taken, any I/O operation fails, or the index cannot be created.
     pub fn create(&self, meta: CollectionMeta) -> Result<(), ServerError> {
-        // Step 1 — validate name before touching the disk.
+        // Step 1: validate name before touching the disk.
         if !is_valid_name(&meta.name) {
             return Err(ServerError::BadName(meta.name.clone()));
         }
 
-        // Step 2 — reject duplicates (read lock only).
+        // Step 2: reject duplicates (read lock only).
         {
             let guard = self
                 .map
@@ -189,14 +189,14 @@ impl Registry {
             }
         }
 
-        // Step 3 — create directory.
+        // Step 3: create directory.
         let dir = self.root.join(&meta.name);
         std::fs::create_dir_all(&dir).map_err(|e| ServerError::Io(e.to_string()))?;
 
-        // Step 4 — persist metadata.
+        // Step 4: persist metadata.
         write_meta(&dir, &meta)?;
 
-        // Step 5 — instantiate the index (outside the write lock).
+        // Step 5: instantiate the index (outside the write lock).
         // Clone the fields needed to build the index so that `meta` stays intact
         // and can be moved into CollectionHandle below.
         let kind = match meta.index_type {
@@ -207,7 +207,7 @@ impl Registry {
             }
         };
 
-        // Step 6 — insert into map (brief write lock).
+        // Step 6: insert into map (brief write lock).
         let handle = Arc::new(CollectionHandle {
             inner: RwLock::new(kind),
             meta,
