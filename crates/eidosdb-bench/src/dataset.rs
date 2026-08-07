@@ -20,7 +20,9 @@ pub struct Dataset {
 pub fn generate(seed: u64, dimension: usize, point_count: usize, query_count: usize) -> Dataset {
     let mut rng = StdRng::seed_from_u64(seed);
     let sample = |rng: &mut StdRng| {
-        let values: Vec<f32> = (0..dimension).map(|_| rng.gen_range(-1.0..1.0)).collect();
+        let values: Vec<f32> = (0..dimension)
+            .map(|_| rng.random_range(-1.0..1.0))
+            .collect();
         Embedding::new(values).expect("dimension is non-zero")
     };
     let points = (0..point_count)
