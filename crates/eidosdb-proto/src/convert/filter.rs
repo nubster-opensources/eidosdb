@@ -1,7 +1,7 @@
 //! Conversions between protobuf wire types and the domain [`Filter`] AST.
 //!
 //! Covers recursive translation of [`pb::Filter`] to and from
-//! [`eidosdb_query::filter::Filter`], including the `And`/`Or` list nodes,
+//! [`eidosdb_query::Filter`], including the `And`/`Or` list nodes,
 //! the `Not` box, and all comparison leaves.
 
 use crate::convert::payload::{value_from_pb, value_to_pb};
