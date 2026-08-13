@@ -1,9 +1,10 @@
 //! `PersistentPayloadStore`: a durable `PayloadStore` backed by redb, with
 //! payloads serialized via postcard.
 
+use crate::redb_compat;
 use eidosdb_core::VectorId;
 use eidosdb_query::{CompiledFilter, Payload, PayloadError, PayloadStore};
-use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::path::Path;
@@ -21,7 +22,7 @@ pub struct PersistentPayloadStore {
 impl PersistentPayloadStore {
     /// Opens a payload store at `path`, creating it if absent.
     pub fn open(path: &Path) -> Result<Self, PayloadError> {
-        let db = Database::create(path).map_err(backend)?;
+        let db = redb_compat::create(path).map_err(backend)?;
         let txn = db.begin_write().map_err(backend)?;
         {
             let _ = txn.open_table(PAYLOADS).map_err(backend)?;

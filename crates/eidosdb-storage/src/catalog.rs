@@ -2,8 +2,9 @@
 
 use crate::error::StorageError;
 use crate::manifest::Manifest;
+use crate::redb_compat;
 use eidosdb_core::VectorId;
-use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -19,7 +20,7 @@ pub struct Catalog {
 impl Catalog {
     /// Creates a new catalog with the given manifest and an empty slot table.
     pub fn create(path: &Path, manifest: &Manifest) -> Result<Self, StorageError> {
-        let db = Database::create(path).map_err(catalog_err)?;
+        let db = redb_compat::create(path).map_err(catalog_err)?;
         let catalog = Self { db };
         let txn = catalog.db.begin_write().map_err(catalog_err)?;
         {
@@ -36,7 +37,7 @@ impl Catalog {
 
     /// Opens an existing catalog and returns its manifest.
     pub fn open(path: &Path) -> Result<(Self, Manifest), StorageError> {
-        let db = Database::open(path).map_err(catalog_err)?;
+        let db = redb_compat::open(path).map_err(catalog_err)?;
         let catalog = Self { db };
         let manifest = catalog.read_manifest()?;
         Ok((catalog, manifest))

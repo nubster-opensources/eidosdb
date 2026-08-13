@@ -3,7 +3,7 @@
 > Pure-Rust vector database for the Nubster Data Plane: ANN similarity search, single binary, edge-ready.
 
 [![CI](https://github.com/nubster-opensources/eidosdb/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nubster-opensources/eidosdb/actions/workflows/ci.yml)
-[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](./Cargo.toml)
+[![MSRV](https://img.shields.io/badge/MSRV-1.89-blue.svg)](./Cargo.toml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-red.svg)](#status)
 [![Made with Rust](https://img.shields.io/badge/made%20with-Rust-orange?logo=rust)](https://www.rust-lang.org/)

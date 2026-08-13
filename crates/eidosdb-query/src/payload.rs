@@ -60,10 +60,10 @@ impl Payload {
 }
 
 fn check_finite(value: &Value) -> Result<(), PayloadError> {
-    if let Value::Float(f) = value {
-        if !f.is_finite() {
-            return Err(PayloadError::NonFiniteValue);
-        }
+    if let Value::Float(f) = value
+        && !f.is_finite()
+    {
+        return Err(PayloadError::NonFiniteValue);
     }
     Ok(())
 }

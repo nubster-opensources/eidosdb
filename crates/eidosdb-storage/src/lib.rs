@@ -16,6 +16,7 @@ pub use error::StorageError;
 
 mod catalog;
 mod manifest;
+mod redb_compat;
 mod segment;
 
 mod persistent_flat;
