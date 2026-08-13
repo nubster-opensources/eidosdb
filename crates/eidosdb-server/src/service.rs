@@ -517,14 +517,14 @@ impl EidosDb for EidosDbService {
 
         let handle = self.registry.get(&name).ok_or_else(|| not_found(&name))?;
 
-        if let Some(vector) = &query.vector {
-            if vector.dimension().get() != handle.meta.dimension.get() {
-                return Err(Status::invalid_argument(format!(
-                    "query dimension mismatch: expected {}, got {}",
-                    handle.meta.dimension.get(),
-                    vector.dimension().get(),
-                )));
-            }
+        if let Some(vector) = &query.vector
+            && vector.dimension().get() != handle.meta.dimension.get()
+        {
+            return Err(Status::invalid_argument(format!(
+                "query dimension mismatch: expected {}, got {}",
+                handle.meta.dimension.get(),
+                vector.dimension().get(),
+            )));
         }
 
         let hits = run_blocking_read(handle, move |kind| {

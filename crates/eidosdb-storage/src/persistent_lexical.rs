@@ -2,9 +2,10 @@
 //! postings, document lengths, and per-document term lists serialized via
 //! postcard.
 
+use crate::redb_compat;
 use eidosdb_core::VectorId;
 use eidosdb_lexical::{Document, LexicalError, LexicalIndex, bm25, tokenize};
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::Path;
@@ -36,7 +37,7 @@ fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, LexicalErro
 impl PersistentLexicalIndex {
     /// Opens a lexical index at `path`, creating it if absent.
     pub fn open(path: &Path) -> Result<Self, LexicalError> {
-        let db = Database::create(path).map_err(backend)?;
+        let db = redb_compat::create(path).map_err(backend)?;
         let txn = db.begin_write().map_err(backend)?;
         {
             let _ = txn.open_table(POSTINGS).map_err(backend)?;

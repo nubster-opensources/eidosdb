@@ -30,6 +30,7 @@ eidosdb-lexical = { path = "../eidosdb-lexical" }
 eidosdb-hnsw = { path = "../eidosdb-hnsw" }
 thiserror.workspace = true
 redb.workspace = true
+redb-v2.workspace = true
 uuid.workspace = true
 memmap2.workspace = true
 bytemuck.workspace = true

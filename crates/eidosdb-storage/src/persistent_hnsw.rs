@@ -15,10 +15,11 @@
 //! no re-insertion, no RNG draw on restore.
 
 use crate::error::StorageError;
+use crate::redb_compat;
 use crate::segment::Segment;
 use eidosdb_core::{Dimension, Embedding, IndexError, Metric, Neighbor, VectorId, VectorIndex};
 use eidosdb_hnsw::{GraphSnapshot, HnswConfig, HnswIndex, SnapshotNode};
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -115,7 +116,7 @@ impl PersistentHnswIndex {
         dimension: Dimension,
     ) -> Result<Self, StorageError> {
         std::fs::create_dir_all(path)?;
-        let db = Database::create(path.join(CATALOG_FILE)).map_err(catalog_err)?;
+        let db = redb_compat::create(&path.join(CATALOG_FILE)).map_err(catalog_err)?;
         let txn = db.begin_write().map_err(catalog_err)?;
         {
             let _ = txn.open_table(ADJ).map_err(catalog_err)?;
@@ -158,7 +159,7 @@ impl PersistentHnswIndex {
     /// Opens an existing persistent HNSW index, reloading the graph EXACTLY
     /// from redb via `HnswIndex::from_snapshot`. No re-insertion, no RNG draw.
     pub fn open(path: &Path) -> Result<Self, StorageError> {
-        let db = Database::open(path.join(CATALOG_FILE)).map_err(catalog_err)?;
+        let db = redb_compat::open(&path.join(CATALOG_FILE)).map_err(catalog_err)?;
 
         let (cfg_row, state_row): (MetaConfig, MetaState) = {
             let txn = db.begin_read().map_err(catalog_err)?;

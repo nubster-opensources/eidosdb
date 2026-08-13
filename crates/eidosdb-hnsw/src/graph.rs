@@ -101,10 +101,10 @@ impl HnswGraph {
 
     /// Replaces the neighbor list for `node` at `layer`.
     pub(crate) fn set_neighbors(&mut self, node: NodeIdx, layer: usize, neighbors: Vec<NodeIdx>) {
-        if let Some(n) = self.nodes.get_mut(node) {
-            if layer < n.neighbors.len() {
-                n.neighbors[layer] = neighbors;
-            }
+        if let Some(n) = self.nodes.get_mut(node)
+            && layer < n.neighbors.len()
+        {
+            n.neighbors[layer] = neighbors;
         }
     }
 
