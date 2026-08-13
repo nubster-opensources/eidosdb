@@ -2,7 +2,7 @@
 
 use eidosdb_core::{Embedding, VectorId};
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 /// A reproducible synthetic dataset: stored points plus query vectors.
 pub struct Dataset {
