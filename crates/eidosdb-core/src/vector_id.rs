@@ -1,47 +1,45 @@
 //! Stable identifier for a stored vector.
-//!
-//! # Identifier policy
-//!
-//! [`VectorId`] wraps an opaque 128-bit UUID. Any UUID version is accepted:
-//! [`VectorId::new`] always generates a time-ordered version 7 UUID, but a
-//! `VectorId` built from a UUID of another version (v4, v5, ...) via
-//! [`VectorId::from_uuid`] or [`From<Uuid>`] works identically everywhere
-//! else; nothing in `EidosDB` inspects the version nibble.
-//!
-//! There is no native support for a non-UUID external identifier (a `u64`
-//! primary key, a natural string key, ...). To key a point on such an
-//! identifier while still storing a `VectorId`, derive a stable UUID from it
-//! client-side with [`Uuid::new_v5`], under a namespace UUID your application
-//! owns:
-//!
-//! ```rust,ignore
-//! use eidosdb_core::VectorId;
-//! use uuid::Uuid;
-//!
-//! // A namespace UUID your application picks once and keeps fixed.
-//! const MY_NAMESPACE: Uuid = Uuid::from_u128(0x1234_5678_9abc_def0_1234_5678_9abc_def0);
-//!
-//! fn id_for_external_key(key: u64) -> VectorId {
-//!     let uuid = Uuid::new_v5(&MY_NAMESPACE, &key.to_be_bytes());
-//!     VectorId::from(uuid)
-//! }
-//! ```
-//!
-//! The same recipe applies to a text key by hashing its UTF-8 bytes instead
-//! of `key.to_be_bytes()`. `Uuid::new_v5` is deterministic: the same
-//! `(namespace, bytes)` pair always derives the same `VectorId`, so an
-//! external identifier can be recovered without a side table.
-//!
-//! This example is `ignore`d rather than run as a doc-test: it needs the
-//! `uuid` crate's `v5` feature, which this workspace does not enable (only
-//! `v7`, for [`VectorId::new`]).
-//!
-//! The on-disk format and the wire protocol both store the raw 128 bits of
-//! the UUID; neither changes with this policy.
 
 use uuid::Uuid;
 
-/// Unique identifier of a vector, backed by a time-ordered UUID v7.
+/// Unique identifier of a vector, backed by an opaque 128-bit UUID.
+///
+/// # Identifier policy
+///
+/// Any UUID version is accepted. [`VectorId::new`] generates a time-ordered
+/// version 7 UUID, but a `VectorId` built from another version (v4, v5, ...)
+/// through [`VectorId::from_uuid`] or [`From<Uuid>`] behaves identically:
+/// nothing in `EidosDB` inspects the version nibble.
+///
+/// There is no native support for a non-UUID external identifier (a `u64`
+/// primary key, a natural text key, ...). To key a vector on one, derive a
+/// stable UUID from it client-side with `Uuid::new_v5`, under a namespace UUID
+/// your application owns:
+///
+/// ```rust
+/// use eidosdb_core::VectorId;
+/// use uuid::Uuid;
+///
+/// // A namespace UUID your application picks once and keeps fixed.
+/// const NAMESPACE: Uuid = Uuid::from_u128(0x1234_5678_9abc_def0_1234_5678_9abc_def0);
+///
+/// fn id_for_external_key(key: u64) -> VectorId {
+///     VectorId::from(Uuid::new_v5(&NAMESPACE, &key.to_be_bytes()))
+/// }
+///
+/// assert_eq!(id_for_external_key(42), id_for_external_key(42));
+/// assert_ne!(id_for_external_key(42), id_for_external_key(43));
+/// ```
+///
+/// A text key follows the same recipe with its UTF-8 bytes. The derivation is
+/// deterministic, so the same key always maps to the same `VectorId` and no
+/// side table is needed to find a vector from its external key. It is a
+/// one-way hash: the external key cannot be read back from the `VectorId`.
+/// `Uuid::new_v5` requires the `v5` feature of the `uuid` crate in your own
+/// dependency declaration.
+///
+/// The on-disk format and the wire protocol store the raw 128 bits of the
+/// UUID, whatever its version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VectorId(Uuid);
 
