@@ -140,16 +140,10 @@ impl EidosDb for EidosDbService {
             .map_err(|_| Status::invalid_argument("unknown metric value"))?;
         let metric = metric_from_pb(pb_metric).map_err(|e| conversion_error_to_status(&e))?;
 
-        // Reject zero dimension early.
-        if req.dimension == 0 {
-            return Err(Status::invalid_argument(
-                "dimension must be greater than zero",
-            ));
-        }
-        let dimension = Dimension(
-            usize::try_from(req.dimension)
-                .map_err(|_| Status::invalid_argument("dimension out of range"))?,
-        );
+        // `Dimension::try_from` rejects a zero dimension with the same message
+        // this endpoint returned before the type could enforce it itself.
+        let dimension = Dimension::try_from(req.dimension)
+            .map_err(|error| Status::invalid_argument(error.to_string()))?;
 
         // Decode index type (i32 -> pb enum -> local choice).
         let pb_index_type = pb::IndexType::try_from(req.index_type)
@@ -157,31 +151,34 @@ impl EidosDb for EidosDbService {
         let index_type =
             index_type_from_pb(pb_index_type).map_err(|e| conversion_error_to_status(&e))?;
 
-        // Build HnswConfig only when index type is HNSW; merge defaults for zero fields.
+        // Build HnswConfig only when index type is HNSW; merge defaults for zero
+        // fields (proto convention: 0 means "use the default"), then validate
+        // through the constructor so an invalid value (e.g. m = 1) is rejected
+        // here rather than crashing the index on first insert.
         let hnsw = if matches!(index_type, IndexTypeChoice::Hnsw) {
             let p = req.hnsw_params.unwrap_or_default();
             let def = HnswConfig::default();
-            Some(HnswConfig {
-                metric,
-                m: if p.m == 0 {
-                    def.m
-                } else {
-                    usize::try_from(p.m).map_err(|_| Status::invalid_argument("m out of range"))?
-                },
-                ef_construction: if p.ef_construction == 0 {
-                    def.ef_construction
-                } else {
-                    usize::try_from(p.ef_construction)
-                        .map_err(|_| Status::invalid_argument("ef_construction out of range"))?
-                },
-                ef_search: if p.ef_search == 0 {
-                    def.ef_search
-                } else {
-                    usize::try_from(p.ef_search)
-                        .map_err(|_| Status::invalid_argument("ef_search out of range"))?
-                },
-                seed: if p.seed == 0 { def.seed } else { p.seed },
-            })
+            let m = if p.m == 0 {
+                def.m()
+            } else {
+                usize::try_from(p.m).map_err(|_| Status::invalid_argument("m out of range"))?
+            };
+            let ef_construction = if p.ef_construction == 0 {
+                def.ef_construction()
+            } else {
+                usize::try_from(p.ef_construction)
+                    .map_err(|_| Status::invalid_argument("ef_construction out of range"))?
+            };
+            let ef_search = if p.ef_search == 0 {
+                def.ef_search()
+            } else {
+                usize::try_from(p.ef_search)
+                    .map_err(|_| Status::invalid_argument("ef_search out of range"))?
+            };
+            let seed = if p.seed == 0 { def.seed() } else { p.seed };
+            let config = HnswConfig::new(metric, m, ef_construction, ef_search, seed)
+                .map_err(|error| Status::invalid_argument(error.to_string()))?;
+            Some(config)
         } else {
             None
         };
@@ -234,7 +231,7 @@ impl EidosDb for EidosDbService {
                 pb::CollectionInfo {
                     name: meta.name,
                     metric: metric_to_pb(meta.metric) as i32,
-                    dimension: u32::try_from(meta.dimension.0).unwrap_or(0),
+                    dimension: u32::try_from(meta.dimension.get()).unwrap_or(0),
                     index_type: index_type_to_pb(meta.index_type) as i32,
                     count,
                 }
@@ -261,7 +258,7 @@ impl EidosDb for EidosDbService {
         Ok(Response::new(pb::CollectionInfo {
             name: meta.name,
             metric: metric_to_pb(meta.metric) as i32,
-            dimension: u32::try_from(meta.dimension.0).unwrap_or(0),
+            dimension: u32::try_from(meta.dimension.get()).unwrap_or(0),
             index_type: index_type_to_pb(meta.index_type) as i32,
             count,
         }))

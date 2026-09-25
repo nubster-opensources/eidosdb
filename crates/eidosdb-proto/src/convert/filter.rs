@@ -10,51 +10,57 @@ use crate::pb;
 use eidosdb_query::{Filter, Value};
 
 /// Converts a domain [`Filter`] to its protobuf wire representation.
+///
+/// `Filter` is `#[non_exhaustive]`: a variant added after this match was
+/// written has no wire encoding yet and is sent as a filter with no `kind`,
+/// the same shape `filter_from_pb` already rejects as
+/// [`ConversionError::MissingField`].
 #[must_use]
 pub fn filter_to_pb(filter: &Filter) -> pb::Filter {
     let kind = match filter {
-        Filter::Eq(field, value) => pb::filter::Kind::Eq(pb::Comparison {
+        Filter::Eq(field, value) => Some(pb::filter::Kind::Eq(pb::Comparison {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::Ne(field, value) => pb::filter::Kind::Ne(pb::Comparison {
+        })),
+        Filter::Ne(field, value) => Some(pb::filter::Kind::Ne(pb::Comparison {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::Lt(field, value) => pb::filter::Kind::Lt(pb::Comparison {
+        })),
+        Filter::Lt(field, value) => Some(pb::filter::Kind::Lt(pb::Comparison {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::Lte(field, value) => pb::filter::Kind::Lte(pb::Comparison {
+        })),
+        Filter::Lte(field, value) => Some(pb::filter::Kind::Lte(pb::Comparison {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::Gt(field, value) => pb::filter::Kind::Gt(pb::Comparison {
+        })),
+        Filter::Gt(field, value) => Some(pb::filter::Kind::Gt(pb::Comparison {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::Gte(field, value) => pb::filter::Kind::Gte(pb::Comparison {
+        })),
+        Filter::Gte(field, value) => Some(pb::filter::Kind::Gte(pb::Comparison {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::In(field, values) => pb::filter::Kind::In(pb::InFilter {
+        })),
+        Filter::In(field, values) => Some(pb::filter::Kind::In(pb::InFilter {
             field: field.clone(),
             values: values.iter().map(value_to_pb).collect(),
-        }),
-        Filter::Contains(field, value) => pb::filter::Kind::Contains(pb::ContainsFilter {
+        })),
+        Filter::Contains(field, value) => Some(pb::filter::Kind::Contains(pb::ContainsFilter {
             field: field.clone(),
             value: Some(value_to_pb(value)),
-        }),
-        Filter::Exists(field) => pb::filter::Kind::Exists(field.clone()),
-        Filter::And(filters) => pb::filter::Kind::And(pb::FilterList {
+        })),
+        Filter::Exists(field) => Some(pb::filter::Kind::Exists(field.clone())),
+        Filter::And(filters) => Some(pb::filter::Kind::And(pb::FilterList {
             filters: filters.iter().map(filter_to_pb).collect(),
-        }),
-        Filter::Or(filters) => pb::filter::Kind::Or(pb::FilterList {
+        })),
+        Filter::Or(filters) => Some(pb::filter::Kind::Or(pb::FilterList {
             filters: filters.iter().map(filter_to_pb).collect(),
-        }),
-        Filter::Not(inner) => pb::filter::Kind::Not(Box::new(filter_to_pb(inner))),
+        })),
+        Filter::Not(inner) => Some(pb::filter::Kind::Not(Box::new(filter_to_pb(inner)))),
+        _ => None,
     };
-    pb::Filter { kind: Some(kind) }
+    pb::Filter { kind }
 }
 
 /// Converts a protobuf [`pb::Filter`] to the domain [`Filter`].

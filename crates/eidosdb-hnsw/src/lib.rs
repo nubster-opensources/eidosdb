@@ -6,7 +6,7 @@
 //! `eidosdb-storage`.
 
 mod config;
-pub use config::{DEFAULT_SEED, HnswConfig};
+pub use config::{DEFAULT_SEED, HnswConfig, HnswConfigError};
 
 pub(crate) mod rng;
 

@@ -20,13 +20,14 @@ pub struct Catalog {
 impl Catalog {
     /// Creates a new catalog with the given manifest and an empty slot table.
     pub fn create(path: &Path, manifest: &Manifest) -> Result<Self, StorageError> {
+        let manifest_bytes = manifest.to_bytes()?;
         let db = redb_compat::create(path).map_err(catalog_err)?;
         let catalog = Self { db };
         let txn = catalog.db.begin_write().map_err(catalog_err)?;
         {
             let mut table = txn.open_table(MANIFEST).map_err(catalog_err)?;
             table
-                .insert(MANIFEST_KEY, manifest.to_bytes().as_slice())
+                .insert(MANIFEST_KEY, manifest_bytes.as_slice())
                 .map_err(catalog_err)?;
             // Touch the slots table so it exists on disk.
             let _ = txn.open_table(SLOTS).map_err(catalog_err)?;
@@ -105,7 +106,7 @@ impl Catalog {
             drop(row);
             manifest.record_count = new_record_count;
             manifest_table
-                .insert(MANIFEST_KEY, manifest.to_bytes().as_slice())
+                .insert(MANIFEST_KEY, manifest.to_bytes()?.as_slice())
                 .map_err(catalog_err)?;
         }
         txn.commit().map_err(catalog_err)?;
@@ -136,7 +137,7 @@ impl Catalog {
             drop(row);
             manifest.record_count = new_record_count;
             manifest_table
-                .insert(MANIFEST_KEY, manifest.to_bytes().as_slice())
+                .insert(MANIFEST_KEY, manifest.to_bytes()?.as_slice())
                 .map_err(catalog_err)?;
         }
         txn.commit().map_err(catalog_err)?;

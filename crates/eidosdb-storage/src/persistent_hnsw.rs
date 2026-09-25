@@ -15,6 +15,7 @@
 //! no re-insertion, no RNG draw on restore.
 
 use crate::error::StorageError;
+use crate::manifest::{metric_from_u8, metric_to_u8};
 use crate::redb_compat;
 use crate::segment::Segment;
 use eidosdb_core::{Dimension, Embedding, IndexError, Metric, Neighbor, VectorId, VectorIndex};
@@ -66,25 +67,6 @@ struct MetaState {
     node_count: u64,
 }
 
-fn metric_to_u8(metric: Metric) -> u8 {
-    match metric {
-        Metric::Cosine => 0,
-        Metric::DotProduct => 1,
-        Metric::Euclidean => 2,
-    }
-}
-
-fn metric_from_u8(v: u8) -> Result<Metric, StorageError> {
-    match v {
-        0 => Ok(Metric::Cosine),
-        1 => Ok(Metric::DotProduct),
-        2 => Ok(Metric::Euclidean),
-        other => Err(StorageError::Corruption(format!(
-            "unknown metric byte {other}"
-        ))),
-    }
-}
-
 fn catalog_err<E: std::fmt::Display>(e: E) -> StorageError {
     StorageError::Catalog(e.to_string())
 }
@@ -115,6 +97,7 @@ impl PersistentHnswIndex {
         config: HnswConfig,
         dimension: Dimension,
     ) -> Result<Self, StorageError> {
+        let metric_byte = metric_to_u8(config.metric())?;
         std::fs::create_dir_all(path)?;
         let db = redb_compat::create(&path.join(CATALOG_FILE)).map_err(catalog_err)?;
         let txn = db.begin_write().map_err(catalog_err)?;
@@ -123,19 +106,19 @@ impl PersistentHnswIndex {
             let _ = txn.open_table(NODES).map_err(catalog_err)?;
             let mut meta_table = txn.open_table(META).map_err(catalog_err)?;
             let cfg = MetaConfig {
-                metric_byte: metric_to_u8(config.metric),
+                metric_byte,
                 dimension: u32::try_from(dimension.get()).map_err(|_| {
                     StorageError::FormatMismatch("dimension exceeds u32".to_string())
                 })?,
-                m: u64::try_from(config.m).unwrap_or(u64::MAX),
-                ef_construction: u64::try_from(config.ef_construction).unwrap_or(u64::MAX),
-                ef_search: u64::try_from(config.ef_search).unwrap_or(u64::MAX),
-                seed: config.seed,
+                m: u64::try_from(config.m()).unwrap_or(u64::MAX),
+                ef_construction: u64::try_from(config.ef_construction()).unwrap_or(u64::MAX),
+                ef_search: u64::try_from(config.ef_search()).unwrap_or(u64::MAX),
+                seed: config.seed(),
             };
             let state = MetaState {
                 entry_point: None,
                 entry_level: 0,
-                rng_state: config.seed,
+                rng_state: config.seed(),
                 node_count: 0,
             };
             meta_table
@@ -147,7 +130,7 @@ impl PersistentHnswIndex {
         }
         txn.commit().map_err(catalog_err)?;
 
-        let segment = Segment::create(&path.join(SEGMENT_FILE), config.metric, dimension.get())?;
+        let segment = Segment::create(&path.join(SEGMENT_FILE), config.metric(), dimension.get())?;
         Ok(Self {
             graph: HnswIndex::new(config, dimension),
             db,
@@ -178,14 +161,16 @@ impl PersistentHnswIndex {
         let metric = metric_from_u8(cfg_row.metric_byte)?;
         let dim = usize::try_from(cfg_row.dimension)
             .map_err(|_| StorageError::Corruption("dimension exceeds usize".to_string()))?;
-        let dimension = Dimension(dim);
-        let config = HnswConfig {
+        let dimension = Dimension::try_from(cfg_row.dimension)
+            .map_err(|error| StorageError::Corruption(format!("invalid dimension: {error}")))?;
+        let config = HnswConfig::new(
             metric,
-            m: usize::try_from(cfg_row.m).unwrap_or(16),
-            ef_construction: usize::try_from(cfg_row.ef_construction).unwrap_or(200),
-            ef_search: usize::try_from(cfg_row.ef_search).unwrap_or(64),
-            seed: cfg_row.seed,
-        };
+            usize::try_from(cfg_row.m).unwrap_or(16),
+            usize::try_from(cfg_row.ef_construction).unwrap_or(200),
+            usize::try_from(cfg_row.ef_search).unwrap_or(64),
+            cfg_row.seed,
+        )
+        .map_err(|error| StorageError::Corruption(format!("invalid hnsw config: {error}")))?;
         let node_count = usize::try_from(state_row.node_count)
             .map_err(|_| StorageError::Corruption("node_count exceeds usize".to_string()))?;
 
@@ -483,20 +468,14 @@ mod tests {
     }
 
     fn cfg() -> HnswConfig {
-        HnswConfig {
-            metric: Metric::Cosine,
-            m: 4,
-            ef_construction: 20,
-            ef_search: 20,
-            seed: 0,
-        }
+        HnswConfig::new(Metric::Cosine, 4, 20, 20, 0).expect("valid config")
     }
 
     #[test]
     fn create_open_insert_search() {
         let dir = TempDir::new().expect("tempdir");
-        let mut index =
-            PersistentHnswIndex::create(dir.path(), cfg(), Dimension(2)).expect("create");
+        let mut index = PersistentHnswIndex::create(dir.path(), cfg(), Dimension::new(2).unwrap())
+            .expect("create");
         let near = VectorId::new();
         let far = VectorId::new();
         index.insert(near, emb(&[1.0, 0.0])).expect("near");
@@ -509,8 +488,8 @@ mod tests {
     #[test]
     fn remove_tombstones_and_excludes_from_search() {
         let dir = TempDir::new().expect("tempdir");
-        let mut index =
-            PersistentHnswIndex::create(dir.path(), cfg(), Dimension(2)).expect("create");
+        let mut index = PersistentHnswIndex::create(dir.path(), cfg(), Dimension::new(2).unwrap())
+            .expect("create");
         let keep = VectorId::new();
         let drop_id = VectorId::new();
         index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
@@ -528,7 +507,8 @@ mod tests {
         let id = VectorId::new();
         {
             let mut index =
-                PersistentHnswIndex::create(dir.path(), cfg(), Dimension(2)).expect("create");
+                PersistentHnswIndex::create(dir.path(), cfg(), Dimension::new(2).unwrap())
+                    .expect("create");
             index.insert(id, emb(&[1.0, 0.0])).expect("insert");
         }
         let index = PersistentHnswIndex::open(dir.path()).expect("reopen");
@@ -554,20 +534,14 @@ mod tests {
                     u128::try_from(i).expect("index fits u128")
                 )))
                 .collect();
-            let base_cfg = HnswConfig {
-                metric: Metric::Cosine,
-                m: 4,
-                ef_construction: 20,
-                ef_search: 20,
-                seed: 0,
-            };
+            let base_cfg = HnswConfig::new(Metric::Cosine, 4, 20, 20, 0).expect("valid config");
             let dir = TempDir::new().expect("tempdir");
             let query = emb(&[1.0, 1.0, 1.0, 1.0]);
 
             // (a) Build persistent, record search results and pre-close snapshot.
             let (r_persist, snapshot_before) = {
                 let mut persistent =
-                    PersistentHnswIndex::create(dir.path(), base_cfg, Dimension(4))
+                    PersistentHnswIndex::create(dir.path(), base_cfg, Dimension::new(4).unwrap())
                         .expect("create");
                 for (id, v) in ids.iter().zip(&vectors) {
                     persistent.insert(*id, emb(v)).expect("p insert");
@@ -597,7 +571,7 @@ mod tests {
             );
 
             // (c) Pure in-memory build with same seed and order must match persistent.
-            let mut mem = HnswIndex::new(base_cfg, Dimension(4));
+            let mut mem = HnswIndex::new(base_cfg, Dimension::new(4).unwrap());
             for (id, v) in ids.iter().zip(&vectors) {
                 mem.insert(*id, emb(v)).expect("m insert");
             }
@@ -620,13 +594,7 @@ mod tests {
         let ids: Vec<VectorId> = (0..10_u128)
             .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(i + 500)))
             .collect();
-        let bulk_cfg = HnswConfig {
-            metric: Metric::Cosine,
-            m: 4,
-            ef_construction: 20,
-            ef_search: 20,
-            seed: 0,
-        };
+        let bulk_cfg = HnswConfig::new(Metric::Cosine, 4, 20, 20, 0).expect("valid config");
         let items: Vec<(VectorId, Embedding)> = ids
             .iter()
             .enumerate()
@@ -636,12 +604,17 @@ mod tests {
             })
             .collect();
 
-        let bulk =
-            PersistentHnswIndex::bulk_load(dir_bulk.path(), bulk_cfg, Dimension(2), items.clone())
-                .expect("bulk_load");
+        let bulk = PersistentHnswIndex::bulk_load(
+            dir_bulk.path(),
+            bulk_cfg,
+            Dimension::new(2).unwrap(),
+            items.clone(),
+        )
+        .expect("bulk_load");
 
         let mut indv =
-            PersistentHnswIndex::create(dir_indv.path(), bulk_cfg, Dimension(2)).expect("create");
+            PersistentHnswIndex::create(dir_indv.path(), bulk_cfg, Dimension::new(2).unwrap())
+                .expect("create");
         for (id, e) in &items {
             indv.insert(*id, e.clone()).expect("indv insert");
         }
@@ -668,18 +641,13 @@ mod tests {
     #[test]
     fn full_lifecycle_insert_remove_compact_close_open_search() {
         let dir = TempDir::new().expect("tempdir");
-        let life_cfg = HnswConfig {
-            metric: Metric::Cosine,
-            m: 4,
-            ef_construction: 20,
-            ef_search: 20,
-            seed: 0,
-        };
+        let life_cfg = HnswConfig::new(Metric::Cosine, 4, 20, 20, 0).expect("valid config");
         let keep = VectorId::new();
         let noise = VectorId::new();
         {
             let mut index =
-                PersistentHnswIndex::create(dir.path(), life_cfg, Dimension(2)).expect("create");
+                PersistentHnswIndex::create(dir.path(), life_cfg, Dimension::new(2).unwrap())
+                    .expect("create");
             index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
             index.insert(noise, emb(&[0.0, 1.0])).expect("noise");
             // Tombstone `noise` then compact to reclaim space.
@@ -718,15 +686,10 @@ mod tests {
     #[test]
     fn compact_persistent_preserves_results() {
         let dir = TempDir::new().expect("tempdir");
-        let compact_cfg = HnswConfig {
-            metric: Metric::Cosine,
-            m: 4,
-            ef_construction: 20,
-            ef_search: 20,
-            seed: 0,
-        };
+        let compact_cfg = HnswConfig::new(Metric::Cosine, 4, 20, 20, 0).expect("valid config");
         let mut index =
-            PersistentHnswIndex::create(dir.path(), compact_cfg, Dimension(2)).expect("create");
+            PersistentHnswIndex::create(dir.path(), compact_cfg, Dimension::new(2).unwrap())
+                .expect("create");
         let keep = VectorId::new();
         for _ in 0..5 {
             let noise = VectorId::new();

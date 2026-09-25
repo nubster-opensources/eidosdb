@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn flat_against_itself_has_perfect_recall() {
         let dataset = generate(1, 8, 200, 10);
-        let index = FlatIndex::new(Metric::Cosine, Dimension(8));
+        let index = FlatIndex::new(Metric::Cosine, Dimension::new(8).unwrap());
         let report = run(index, &dataset, 10);
         assert!((report.mean_recall - 1.0).abs() < 1e-6);
         assert_eq!(report.query_count, 10);
@@ -74,15 +74,9 @@ mod tests {
     #[test]
     fn hnsw_cosine_recall_above_threshold() {
         use eidosdb_hnsw::{HnswConfig, HnswIndex};
-        let cfg = HnswConfig {
-            metric: Metric::Cosine,
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            seed: 1,
-        };
+        let cfg = HnswConfig::new(Metric::Cosine, 16, 200, 64, 1).expect("valid config");
         let dataset = generate(1, 16, 500, 50);
-        let index = HnswIndex::new(cfg, Dimension(16));
+        let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
         assert!(
             report.mean_recall >= 0.90,
@@ -94,15 +88,9 @@ mod tests {
     #[test]
     fn hnsw_euclidean_recall_above_threshold() {
         use eidosdb_hnsw::{HnswConfig, HnswIndex};
-        let cfg = HnswConfig {
-            metric: Metric::Euclidean,
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            seed: 2,
-        };
+        let cfg = HnswConfig::new(Metric::Euclidean, 16, 200, 64, 2).expect("valid config");
         let dataset = generate(2, 16, 500, 50);
-        let index = HnswIndex::new(cfg, Dimension(16));
+        let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
         assert!(
             report.mean_recall >= 0.90,
@@ -114,15 +102,9 @@ mod tests {
     #[test]
     fn hnsw_dotproduct_recall_above_threshold() {
         use eidosdb_hnsw::{HnswConfig, HnswIndex};
-        let cfg = HnswConfig {
-            metric: Metric::DotProduct,
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            seed: 3,
-        };
+        let cfg = HnswConfig::new(Metric::DotProduct, 16, 200, 64, 3).expect("valid config");
         let dataset = generate(3, 16, 500, 50);
-        let index = HnswIndex::new(cfg, Dimension(16));
+        let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
         assert!(
             report.mean_recall >= 0.90,

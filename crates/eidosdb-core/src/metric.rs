@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Similarity metric used to compare two embeddings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Metric {
     /// Cosine similarity in `[-1, 1]`, higher is closer.
     Cosine,
@@ -15,7 +16,24 @@ pub enum Metric {
 
 /// A normalized similarity score where a greater value always means a closer match.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct Score(pub f32);
+pub struct Score(f32);
+
+impl Score {
+    /// Builds a score from a raw value.
+    ///
+    /// No validation is applied: a score can hold any `f32` a metric
+    /// produces, including negative ones.
+    #[must_use]
+    pub const fn new(value: f32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw value.
+    #[must_use]
+    pub const fn value(self) -> f32 {
+        self.0
+    }
+}
 
 impl Metric {
     /// Scores two equal-length slices under this metric.
@@ -25,9 +43,9 @@ impl Metric {
     pub fn score(self, a: &[f32], b: &[f32]) -> Score {
         debug_assert_eq!(a.len(), b.len(), "score requires equal-length slices");
         match self {
-            Metric::Cosine => Score(cosine(a, b)),
-            Metric::DotProduct => Score(dot(a, b)),
-            Metric::Euclidean => Score(-euclidean(a, b)),
+            Metric::Cosine => Score::new(cosine(a, b)),
+            Metric::DotProduct => Score::new(dot(a, b)),
+            Metric::Euclidean => Score::new(-euclidean(a, b)),
         }
     }
 }
@@ -59,7 +77,12 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::Metric;
+    use super::{Metric, Score};
+
+    #[test]
+    fn score_restores_a_negative_raw_value() {
+        assert!((Score::new(-0.5).value() - -0.5).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn cosine_of_identical_unit_vectors_is_one() {

@@ -116,6 +116,11 @@ impl Registry {
             };
 
             // Reopen the index; skip on failure.
+            //
+            // `IndexTypeChoice` is `#[non_exhaustive]`: a variant added later
+            // has no known reopen strategy here, so the collection is skipped
+            // the same way a reopen failure is, rather than failing to
+            // compile or panicking.
             let kind = match meta.index_type {
                 IndexTypeChoice::Flat => {
                     match CollectionKind::open_flat(&dir, meta.metric, meta.dimension) {
@@ -137,6 +142,10 @@ impl Registry {
                         continue;
                     }
                 },
+                _ => {
+                    tracing::warn!("skipping {:?}: unknown index type", dir);
+                    continue;
+                }
             };
 
             let handle = Arc::new(CollectionHandle {
@@ -199,12 +208,15 @@ impl Registry {
         // Step 5: instantiate the index (outside the write lock).
         // Clone the fields needed to build the index so that `meta` stays intact
         // and can be moved into CollectionHandle below.
+        // `IndexTypeChoice` is `#[non_exhaustive]`: a variant added later has
+        // no known creation strategy here and is rejected as an index error.
         let kind = match meta.index_type {
             IndexTypeChoice::Flat => CollectionKind::open_flat(&dir, meta.metric, meta.dimension)?,
             IndexTypeChoice::Hnsw => {
                 let config = meta.hnsw.unwrap_or_default();
                 CollectionKind::create_hnsw(&dir, config, meta.dimension)?
             }
+            _ => return Err(ServerError::Index("unsupported index type".to_string())),
         };
 
         // Step 6: insert into map (brief write lock).
@@ -310,7 +322,7 @@ mod tests {
         CollectionMeta {
             name: name.to_string(),
             metric: Metric::Cosine,
-            dimension: Dimension(3),
+            dimension: Dimension::new(3).unwrap(),
             index_type: IndexTypeChoice::Hnsw,
             hnsw: Some(HnswConfig::default()),
         }

@@ -24,14 +24,18 @@ pub struct Manifest {
 
 impl Manifest {
     /// Serializes the manifest to its fixed-length representation.
-    #[must_use]
-    pub fn to_bytes(self) -> [u8; MANIFEST_LEN] {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::FormatMismatch`] when the metric has no
+    /// on-disk encoding (see [`metric_to_u8`]).
+    pub fn to_bytes(self) -> Result<[u8; MANIFEST_LEN], StorageError> {
         let mut bytes = [0u8; MANIFEST_LEN];
         bytes[0..4].copy_from_slice(&self.format_version.to_le_bytes());
         bytes[4..8].copy_from_slice(&self.dimension.to_le_bytes());
-        bytes[8] = metric_to_u8(self.metric);
+        bytes[8] = metric_to_u8(self.metric)?;
         bytes[9..17].copy_from_slice(&self.record_count.to_le_bytes());
-        bytes
+        Ok(bytes)
     }
 
     /// Parses a manifest from its on-disk representation.
@@ -70,12 +74,21 @@ fn read_u64(bytes: &[u8]) -> Result<u64, StorageError> {
 }
 
 /// Encodes a metric as a single byte.
-#[must_use]
-pub fn metric_to_u8(metric: Metric) -> u8 {
+///
+/// # Errors
+///
+/// `Metric` is `#[non_exhaustive]`: a variant added after this format was
+/// frozen has no assigned byte, and is rejected with
+/// [`StorageError::FormatMismatch`] before anything reaches the disk, so a
+/// store is never written in a shape it cannot read back.
+pub fn metric_to_u8(metric: Metric) -> Result<u8, StorageError> {
     match metric {
-        Metric::Cosine => 0,
-        Metric::DotProduct => 1,
-        Metric::Euclidean => 2,
+        Metric::Cosine => Ok(0),
+        Metric::DotProduct => Ok(1),
+        Metric::Euclidean => Ok(2),
+        other => Err(StorageError::FormatMismatch(format!(
+            "metric {other:?} has no on-disk encoding"
+        ))),
     }
 }
 
@@ -105,7 +118,7 @@ mod tests {
             metric: Metric::Cosine,
             record_count: 42,
         };
-        let parsed = Manifest::from_bytes(&manifest.to_bytes()).expect("parse");
+        let parsed = Manifest::from_bytes(&manifest.to_bytes().expect("encode")).expect("parse");
         assert_eq!(parsed, manifest);
     }
 
@@ -118,7 +131,8 @@ mod tests {
                 metric,
                 record_count: 0,
             };
-            let parsed = Manifest::from_bytes(&manifest.to_bytes()).expect("parse");
+            let parsed =
+                Manifest::from_bytes(&manifest.to_bytes().expect("encode")).expect("parse");
             assert_eq!(parsed.metric, metric);
         }
     }

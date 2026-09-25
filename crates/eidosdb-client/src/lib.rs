@@ -23,6 +23,7 @@ use tonic::transport::Channel;
 
 /// Errors returned by [`EidosClient`] operations.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ClientError {
     /// The transport failed to connect or carry the request.
     Transport(String),
@@ -123,8 +124,7 @@ fn collection_info_to_view(info: pb::CollectionInfo) -> Result<CollectionMetaVie
     let index_type = pb::IndexType::try_from(info.index_type)
         .map_err(|_| out_of_range("index_type"))
         .and_then(|t| index_type_from_pb(t).map_err(ClientError::Conversion))?;
-    let dimension =
-        Dimension(usize::try_from(info.dimension).map_err(|_| out_of_range("dimension"))?);
+    let dimension = Dimension::try_from(info.dimension).map_err(|_| out_of_range("dimension"))?;
     Ok(CollectionMetaView {
         name: info.name,
         metric,
@@ -162,10 +162,10 @@ impl EidosClient {
         let dimension = narrow_u32(spec.dimension.get(), "dimension")?;
         let hnsw_params = match spec.hnsw {
             Some(config) => Some(pb::HnswParams {
-                m: narrow_u32(config.m, "m")?,
-                ef_construction: narrow_u32(config.ef_construction, "ef_construction")?,
-                ef_search: narrow_u32(config.ef_search, "ef_search")?,
-                seed: config.seed,
+                m: narrow_u32(config.m(), "m")?,
+                ef_construction: narrow_u32(config.ef_construction(), "ef_construction")?,
+                ef_search: narrow_u32(config.ef_search(), "ef_search")?,
+                seed: config.seed(),
             }),
             None => None,
         };

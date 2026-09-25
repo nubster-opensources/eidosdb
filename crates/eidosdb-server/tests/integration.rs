@@ -273,6 +273,30 @@ async fn create_unspecified_metric_is_invalid_argument() {
 }
 
 #[tokio::test]
+async fn create_hnsw_degree_one_is_invalid_argument() {
+    // #92: m = 1 makes m_l = 1 / ln(1) = infinity, which crashes the process
+    // on the first insert. The server must reject it at CreateCollection,
+    // before any vector is ever inserted (this test never inserts one).
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .create_collection(pb::CreateCollectionRequest {
+            name: "degree-one".into(),
+            metric: pb::Metric::Cosine as i32,
+            dimension: 3,
+            index_type: pb::IndexType::Hnsw as i32,
+            hnsw_params: Some(pb::HnswParams {
+                m: 1,
+                ef_construction: 200,
+                ef_search: 64,
+                seed: 42,
+            }),
+        })
+        .await
+        .expect_err("m = 1 must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
 async fn create_zero_dimension_is_invalid_argument() {
     let (mut client, _dir) = start_server().await;
     let err = client
@@ -577,9 +601,12 @@ async fn server_search_matches_direct_collection_kind() {
 
     // 2. Direct: a CollectionKind HNSW on its own tempdir, default config.
     let direct_dir = tempfile::tempdir().expect("dir");
-    let mut direct =
-        CollectionKind::create_hnsw(direct_dir.path(), HnswConfig::default(), Dimension(3))
-            .expect("direct");
+    let mut direct = CollectionKind::create_hnsw(
+        direct_dir.path(),
+        HnswConfig::default(),
+        Dimension::new(3).unwrap(),
+    )
+    .expect("direct");
     for (id, v) in &points {
         direct
             .upsert(*id, Embedding::new(v.clone()).expect("emb"), None, None)
