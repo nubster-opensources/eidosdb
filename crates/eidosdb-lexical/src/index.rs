@@ -7,6 +7,16 @@ use eidosdb_core::VectorId;
 ///
 /// The port knows ids and text, never vectors or payloads. Filtering enters as
 /// an admissibility predicate, exactly as in `VectorIndex::search_filtered`.
+///
+/// # Stability contract
+///
+/// This trait carries the same freeze as `VectorIndex` (see its
+/// documentation): any method added after 0.1 carries a default
+/// implementation, so an external implementation keeps compiling across
+/// later 0.x releases, and the trait stays object-safe, since
+/// `search_text_filtered` takes its predicate as `&dyn Fn(&VectorId) -> bool`
+/// rather than a generic parameter. The `_lexical_index_is_object_safe`
+/// compile-time test below guards this.
 pub trait LexicalIndex {
     /// Indexes `document` under `id`, replacing any prior document for that id.
     fn insert(&mut self, id: VectorId, document: &Document) -> Result<(), LexicalError>;
