@@ -4,6 +4,7 @@ use std::fmt;
 
 /// Error produced when converting between protobuf wire types and domain types.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ConversionError {
     /// A UUID field could not be parsed.
     InvalidUuid(String),

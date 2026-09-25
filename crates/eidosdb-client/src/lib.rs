@@ -23,6 +23,7 @@ use tonic::transport::Channel;
 
 /// Errors returned by [`EidosClient`] operations.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ClientError {
     /// The transport failed to connect or carry the request.
     Transport(String),

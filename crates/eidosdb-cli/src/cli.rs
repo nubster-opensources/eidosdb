@@ -303,19 +303,27 @@ fn parse_filter(raw: &str) -> Result<Filter, CliError> {
 }
 
 /// Renders a domain [`Metric`] as a lowercase string.
+///
+/// `Metric` is `#[non_exhaustive]`; a variant added later renders as
+/// `"unknown"` rather than failing to compile or panicking.
 fn metric_label(metric: Metric) -> &'static str {
     match metric {
         Metric::Cosine => "cosine",
         Metric::DotProduct => "dot-product",
         Metric::Euclidean => "euclidean",
+        _ => "unknown",
     }
 }
 
 /// Renders an [`IndexTypeChoice`] as a lowercase string.
+///
+/// `IndexTypeChoice` is `#[non_exhaustive]`; a variant added later renders as
+/// `"unknown"` rather than failing to compile or panicking.
 fn index_type_label(index_type: IndexTypeChoice) -> &'static str {
     match index_type {
         IndexTypeChoice::Flat => "flat",
         IndexTypeChoice::Hnsw => "hnsw",
+        _ => "unknown",
     }
 }
 
@@ -331,12 +339,16 @@ fn view_to_json(view: &CollectionMetaView) -> Json {
 }
 
 /// Renders a domain [`Value`] as JSON.
+///
+/// `Value` is `#[non_exhaustive]`; a variant added later renders as JSON
+/// `null` rather than failing to compile or panicking.
 fn value_to_json(value: &Value) -> Json {
     match value {
         Value::Text(s) => json!(s),
         Value::Integer(i) => json!(i),
         Value::Float(f) => json!(f),
         Value::Bool(b) => json!(b),
+        _ => Json::Null,
     }
 }
 
@@ -344,9 +356,12 @@ fn value_to_json(value: &Value) -> Json {
 fn payload_to_json(payload: &Payload) -> Json {
     let mut object = serde_json::Map::new();
     for (key, field) in payload.iter() {
+        // `FieldValue` is `#[non_exhaustive]`; a variant added later renders
+        // as JSON `null` rather than failing to compile or panicking.
         let value = match field {
             FieldValue::Scalar(scalar) => value_to_json(scalar),
             FieldValue::Array(items) => Json::Array(items.iter().map(value_to_json).collect()),
+            _ => Json::Null,
         };
         object.insert(key.clone(), value);
     }

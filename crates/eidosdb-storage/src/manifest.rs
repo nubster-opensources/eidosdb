@@ -70,12 +70,18 @@ fn read_u64(bytes: &[u8]) -> Result<u64, StorageError> {
 }
 
 /// Encodes a metric as a single byte.
+///
+/// `Metric` is `#[non_exhaustive]`: a variant added after this format was
+/// frozen has no assigned byte and encodes as `255`, a value
+/// `metric_from_u8` already rejects as [`StorageError::Corruption`] like any
+/// other unrecognized byte, rather than silently mislabeling it.
 #[must_use]
 pub fn metric_to_u8(metric: Metric) -> u8 {
     match metric {
         Metric::Cosine => 0,
         Metric::DotProduct => 1,
         Metric::Euclidean => 2,
+        _ => 255,
     }
 }
 

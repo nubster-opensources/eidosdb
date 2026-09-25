@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Similarity metric used to compare two embeddings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Metric {
     /// Cosine similarity in `[-1, 1]`, higher is closer.
     Cosine,
