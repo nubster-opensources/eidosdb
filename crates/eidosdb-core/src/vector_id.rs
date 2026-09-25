@@ -1,4 +1,43 @@
 //! Stable identifier for a stored vector.
+//!
+//! # Identifier policy
+//!
+//! [`VectorId`] wraps an opaque 128-bit UUID. Any UUID version is accepted:
+//! [`VectorId::new`] always generates a time-ordered version 7 UUID, but a
+//! `VectorId` built from a UUID of another version (v4, v5, ...) via
+//! [`VectorId::from_uuid`] or [`From<Uuid>`] works identically everywhere
+//! else; nothing in `EidosDB` inspects the version nibble.
+//!
+//! There is no native support for a non-UUID external identifier (a `u64`
+//! primary key, a natural string key, ...). To key a point on such an
+//! identifier while still storing a `VectorId`, derive a stable UUID from it
+//! client-side with [`Uuid::new_v5`], under a namespace UUID your application
+//! owns:
+//!
+//! ```rust,ignore
+//! use eidosdb_core::VectorId;
+//! use uuid::Uuid;
+//!
+//! // A namespace UUID your application picks once and keeps fixed.
+//! const MY_NAMESPACE: Uuid = Uuid::from_u128(0x1234_5678_9abc_def0_1234_5678_9abc_def0);
+//!
+//! fn id_for_external_key(key: u64) -> VectorId {
+//!     let uuid = Uuid::new_v5(&MY_NAMESPACE, &key.to_be_bytes());
+//!     VectorId::from(uuid)
+//! }
+//! ```
+//!
+//! The same recipe applies to a text key by hashing its UTF-8 bytes instead
+//! of `key.to_be_bytes()`. `Uuid::new_v5` is deterministic: the same
+//! `(namespace, bytes)` pair always derives the same `VectorId`, so an
+//! external identifier can be recovered without a side table.
+//!
+//! This example is `ignore`d rather than run as a doc-test: it needs the
+//! `uuid` crate's `v5` feature, which this workspace does not enable (only
+//! `v7`, for [`VectorId::new`]).
+//!
+//! The on-disk format and the wire protocol both store the raw 128 bits of
+//! the UUID; neither changes with this policy.
 
 use uuid::Uuid;
 
@@ -33,18 +72,16 @@ impl Default for VectorId {
 }
 
 impl From<Uuid> for VectorId {
-    /// Not implemented yet: equivalent to [`VectorId::from_uuid`], lands in
-    /// the Building phase alongside the other conversions.
-    fn from(_uuid: Uuid) -> Self {
-        todo!()
+    /// Equivalent to [`VectorId::from_uuid`]: any UUID version is accepted.
+    fn from(uuid: Uuid) -> Self {
+        Self::from_uuid(uuid)
     }
 }
 
 impl From<VectorId> for Uuid {
-    /// Not implemented yet: equivalent to [`VectorId::as_uuid`], lands in
-    /// the Building phase alongside the other conversions.
-    fn from(_id: VectorId) -> Self {
-        todo!()
+    /// Equivalent to [`VectorId::as_uuid`].
+    fn from(id: VectorId) -> Self {
+        id.as_uuid()
     }
 }
 
