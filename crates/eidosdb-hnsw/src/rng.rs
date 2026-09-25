@@ -6,13 +6,10 @@
 
 /// Hard ceiling on the level a node can be sampled at.
 ///
-/// Not wired into [`SplitMix64::next_level`] yet: the defense-in-depth clamp
-/// lands in the Building phase of this lot. Sixty-four layers is already out
-/// of reach for any realistic population once `m >= 2`.
-#[allow(
-    dead_code,
-    reason = "consumed by the Building-phase clamp in next_level, referenced today only by its guard test"
-)]
+/// Defense in depth: [`SplitMix64::next_level`] clamps its result to this
+/// bound even when `m_l` is infinite or NaN (which happens if an invalid
+/// `m <= 1` ever slips past `HnswConfig::new`). Sixty-four layers is already
+/// out of reach for any realistic population once `m >= 2`.
 pub(crate) const MAX_LEVEL: usize = 64;
 
 /// A seeded, deterministic 64-bit generator based on the `SplitMix64` algorithm.
@@ -62,9 +59,20 @@ impl SplitMix64 {
         let u = (raw.wrapping_add(1)) as f64 / (u64::MAX as f64 + 1.0);
         // floor(-ln(u) * m_l); u in (0,1] so -ln(u) >= 0.
         let level = (-u.ln() * m_l).floor();
-        // level is finite and >= 0 because u > 0; cast is safe.
+        // `m_l` can be +infinity (or, defensively, NaN) when an invalid `m`
+        // slips past `HnswConfig::new` (m = 1 gives m_l = 1 / ln(1) = inf).
+        // Clamp explicitly to `MAX_LEVEL` rather than relying on the
+        // saturating behaviour of the float-to-int cast below.
+        #[allow(clippy::cast_precision_loss)]
+        let max_level = MAX_LEVEL as f64;
+        let bounded_level = if level.is_finite() {
+            level.clamp(0.0, max_level)
+        } else {
+            max_level
+        };
+        // bounded_level is finite and within [0.0, MAX_LEVEL as f64]; cast is safe.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let result = level as usize;
+        let result = bounded_level as usize;
         result
     }
 }

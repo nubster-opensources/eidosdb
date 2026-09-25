@@ -301,10 +301,15 @@ mod tests {
     }
 
     fn hnsw_config() -> HnswConfig {
-        HnswConfig {
-            metric: Metric::Cosine,
-            ..HnswConfig::default()
-        }
+        let defaults = HnswConfig::default();
+        HnswConfig::new(
+            Metric::Cosine,
+            defaults.m(),
+            defaults.ef_construction(),
+            defaults.ef_search(),
+            defaults.seed(),
+        )
+        .expect("valid config")
     }
 
     // -----------------------------------------------------------------------

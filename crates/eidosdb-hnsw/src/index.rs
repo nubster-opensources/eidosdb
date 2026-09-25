@@ -26,8 +26,8 @@ impl HnswIndex {
     /// Creates an empty index.
     #[must_use]
     pub fn new(config: HnswConfig, dimension: Dimension) -> Self {
-        let supported = [config.metric];
-        let rng = SplitMix64::new(config.seed);
+        let supported = [config.metric()];
+        let rng = SplitMix64::new(config.seed());
         Self {
             config,
             dimension,
@@ -40,8 +40,8 @@ impl HnswIndex {
     /// Creates an empty index with a pre-allocated node capacity.
     #[must_use]
     pub fn with_capacity(config: HnswConfig, dimension: Dimension, capacity: usize) -> Self {
-        let supported = [config.metric];
-        let rng = SplitMix64::new(config.seed);
+        let supported = [config.metric()];
+        let rng = SplitMix64::new(config.seed());
         Self {
             config,
             dimension,
@@ -83,7 +83,7 @@ impl HnswIndex {
                 Embedding::new(slice.to_vec()).map(|embedding| (id, embedding))
             })
             .collect::<Result<_, _>>()?;
-        self.rng = SplitMix64::new(self.config.seed);
+        self.rng = SplitMix64::new(self.config.seed());
         self.graph = HnswGraph::with_capacity(live.len());
         for (id, embedding) in live {
             self.insert(id, embedding)?;
@@ -158,7 +158,7 @@ impl HnswIndex {
             .transpose()?;
         graph.set_entry_point(entry_point);
 
-        let supported = [config.metric];
+        let supported = [config.metric()];
         Ok(Self {
             config,
             dimension,
@@ -380,7 +380,7 @@ fn select_neighbors_heuristic(
 
 impl VectorIndex for HnswIndex {
     fn metric(&self) -> Metric {
-        self.config.metric
+        self.config.metric()
     }
 
     fn supported_metrics(&self) -> &[Metric] {
@@ -419,7 +419,7 @@ impl VectorIndex for HnswIndex {
                 got: query.dimension().get(),
             });
         }
-        if metric != self.config.metric {
+        if metric != self.config.metric() {
             return Err(IndexError::UnsupportedMetric(metric));
         }
         let Some(entry) = self.graph.entry_point() else {
@@ -428,7 +428,7 @@ impl VectorIndex for HnswIndex {
 
         let entry_level = self.graph.node_level(entry);
         let q = query.as_slice();
-        let ef = self.config.ef_search.max(k);
+        let ef = self.config.ef_search().max(k);
 
         // Greedy descent to layer 1.
         let current_entry = if entry_level > 0 {
@@ -531,7 +531,7 @@ impl HnswIndex {
         };
 
         let entry_level = self.graph.node_level(entry);
-        let metric = self.config.metric;
+        let metric = self.config.metric();
         let q = embedding.as_slice();
 
         let mut current_entry = entry;
@@ -539,7 +539,7 @@ impl HnswIndex {
             current_entry = greedy_descent(&self.graph, q, metric, entry, entry_level, level + 1);
         }
 
-        let ef_c = self.config.ef_construction;
+        let ef_c = self.config.ef_construction();
         let m_max0 = self.config.m_max0();
         let m_max = self.config.m_max();
 
@@ -697,13 +697,8 @@ mod tests {
     }
 
     fn config() -> HnswConfig {
-        HnswConfig {
-            metric: Metric::Cosine,
-            m: 4,
-            ef_construction: 20,
-            ef_search: 20,
-            ..HnswConfig::default()
-        }
+        let seed = HnswConfig::default().seed();
+        HnswConfig::new(Metric::Cosine, 4, 20, 20, seed).expect("valid config")
     }
 
     #[test]
@@ -777,13 +772,7 @@ mod tests {
     #[test]
     fn nearest_neighbor_matches_flat_oracle_small_corpus() {
         // 20-point 2-D corpus; compare top-3 with FlatIndex.
-        let cfg = HnswConfig {
-            metric: Metric::Cosine,
-            m: 4,
-            ef_construction: 40,
-            ef_search: 40,
-            seed: 0,
-        };
+        let cfg = HnswConfig::new(Metric::Cosine, 4, 40, 40, 0).expect("valid config");
         let mut hnsw = HnswIndex::new(cfg, Dimension::new(2).unwrap());
         let mut flat = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let points: Vec<(VectorId, Embedding)> = (0..20)
@@ -851,12 +840,9 @@ mod tests {
 
     #[test]
     fn compact_preserves_live_results() {
-        let cfg = HnswConfig {
-            m: 4,
-            ef_construction: 40,
-            ef_search: 40,
-            ..HnswConfig::default()
-        };
+        let defaults = HnswConfig::default();
+        let cfg =
+            HnswConfig::new(defaults.metric(), 4, 40, 40, defaults.seed()).expect("valid config");
         let mut index = HnswIndex::new(cfg, Dimension::new(2).unwrap());
         let keep = VectorId::new();
         let drop = VectorId::new();
@@ -873,12 +859,9 @@ mod tests {
     #[test]
     fn ties_broken_by_ascending_id() {
         // Insert two identical embeddings; the one with lower VectorId must come first.
-        let cfg = HnswConfig {
-            m: 4,
-            ef_construction: 40,
-            ef_search: 40,
-            ..HnswConfig::default()
-        };
+        let defaults = HnswConfig::default();
+        let cfg =
+            HnswConfig::new(defaults.metric(), 4, 40, 40, defaults.seed()).expect("valid config");
         let mut index = HnswIndex::new(cfg, Dimension::new(2).unwrap());
         let mut flat = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let first = VectorId::new();
@@ -967,13 +950,8 @@ mod tests {
                 2..20_usize,
             ),
         ) {
-            let cfg = HnswConfig {
-                m: 4,
-                ef_construction: 20,
-                ef_search: 20,
-                seed: 42,
-                ..HnswConfig::default()
-            };
+            let cfg = HnswConfig::new(HnswConfig::default().metric(), 4, 20, 20, 42)
+                .expect("valid config");
             let mut a = HnswIndex::new(cfg, Dimension::new(4).unwrap());
             let mut b = HnswIndex::new(cfg, Dimension::new(4).unwrap());
             let ids: Vec<VectorId> = (0..vectors.len())
@@ -997,13 +975,8 @@ mod tests {
                 4..15_usize,
             ),
         ) {
-            let cfg = HnswConfig {
-                m: 4,
-                ef_construction: 40,
-                ef_search: 40,
-                seed: 7,
-                ..HnswConfig::default()
-            };
+            let cfg = HnswConfig::new(HnswConfig::default().metric(), 4, 40, 40, 7)
+                .expect("valid config");
             let mut hnsw = HnswIndex::new(cfg, Dimension::new(4).unwrap());
             let mut flat = FlatIndex::new(Metric::Cosine, Dimension::new(4).unwrap());
             let ids: Vec<VectorId> = (0..vectors.len())
@@ -1055,13 +1028,8 @@ mod tests {
                 2..12_usize,
             ),
         ) {
-            let cfg = HnswConfig {
-                m: 4,
-                ef_construction: 20,
-                ef_search: 20,
-                seed: 99,
-                ..HnswConfig::default()
-            };
+            let cfg = HnswConfig::new(HnswConfig::default().metric(), 4, 20, 20, 99)
+                .expect("valid config");
             let mut index = HnswIndex::new(cfg, Dimension::new(4).unwrap());
             let ids: Vec<VectorId> = (0..vectors.len())
                 .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128") + 200)))

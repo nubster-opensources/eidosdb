@@ -372,19 +372,18 @@ fn build_hnsw(
     seed: Option<u64>,
 ) -> Result<HnswConfig, CliError> {
     let defaults = HnswConfig::default();
-    Ok(HnswConfig {
-        metric,
-        m: m.map(to_usize).transpose()?.unwrap_or(defaults.m),
-        ef_construction: ef_construction
-            .map(to_usize)
-            .transpose()?
-            .unwrap_or(defaults.ef_construction),
-        ef_search: ef_search
-            .map(to_usize)
-            .transpose()?
-            .unwrap_or(defaults.ef_search),
-        seed: seed.unwrap_or(defaults.seed),
-    })
+    let m = m.map(to_usize).transpose()?.unwrap_or(defaults.m());
+    let ef_construction = ef_construction
+        .map(to_usize)
+        .transpose()?
+        .unwrap_or(defaults.ef_construction());
+    let ef_search = ef_search
+        .map(to_usize)
+        .transpose()?
+        .unwrap_or(defaults.ef_search());
+    let seed = seed.unwrap_or(defaults.seed());
+    HnswConfig::new(metric, m, ef_construction, ef_search, seed)
+        .map_err(|error| CliError::Usage(error.to_string()))
 }
 
 /// Executes a `CreateCollection` command.

@@ -6,29 +6,34 @@ use serde::{Deserialize, Serialize};
 /// Parameters controlling HNSW graph construction and search.
 ///
 /// All derived quantities (`m_max0`, `m_max`, `m_l`) are computed from
-/// these fields at build time to avoid repeated division.
+/// these fields at build time to avoid repeated division. Fields are
+/// private: the only way to build a value is [`HnswConfig::new`], which
+/// enforces the invariants `m >= 2`, `ef_construction >= 1` and
+/// `ef_search >= 1` (see the security note on `m` below).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "HnswConfigRepr", into = "HnswConfigRepr")]
 pub struct HnswConfig {
     /// Metric the graph is built for. Only this metric is supported at query time.
-    pub metric: Metric,
+    metric: Metric,
     /// Target number of bidirectional links per node (layers > 0). Default: 16.
-    pub m: usize,
+    m: usize,
     /// Candidate list size at insertion time. Default: 200.
-    pub ef_construction: usize,
+    ef_construction: usize,
     /// Candidate list size at query time (may be overridden to `max(ef_search, k)`). Default: 64.
-    pub ef_search: usize,
+    ef_search: usize,
     /// Seed for the deterministic `SplitMix64` RNG. Default: a fixed constant.
-    pub seed: u64,
+    seed: u64,
 }
 
 /// Errors returned when validating an [`HnswConfig`].
-///
-/// Not implemented yet: this is the target shape for the upcoming
-/// `HnswConfig::new` constructor; call sites still build `HnswConfig` directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum HnswConfigError {
     /// `m` was below [`HnswConfig::MIN_DEGREE`].
+    ///
+    /// `m == 1` makes `m_l = 1 / ln(1) = infinity`, which the level sampler
+    /// (`SplitMix64::next_level`) would otherwise turn into an out-of-bounds
+    /// layer on the very first insert.
     #[error("m must be at least 2, got {0}")]
     DegreeTooSmall(usize),
     /// `ef_construction` was zero.
@@ -45,9 +50,6 @@ impl HnswConfig {
 
     /// Validates and builds an HNSW configuration.
     ///
-    /// Not implemented yet: the constructor and the underlying private
-    /// representation land in the Building phase of this lot.
-    ///
     /// # Errors
     ///
     /// Returns [`HnswConfigError::DegreeTooSmall`] when `m` is below
@@ -55,53 +57,58 @@ impl HnswConfig {
     /// when `ef_construction` is zero, or [`HnswConfigError::ZeroSearchBeam`]
     /// when `ef_search` is zero.
     pub fn new(
-        _metric: Metric,
-        _m: usize,
-        _ef_construction: usize,
-        _ef_search: usize,
-        _seed: u64,
+        metric: Metric,
+        m: usize,
+        ef_construction: usize,
+        ef_search: usize,
+        seed: u64,
     ) -> Result<Self, HnswConfigError> {
-        todo!()
+        if m < Self::MIN_DEGREE {
+            return Err(HnswConfigError::DegreeTooSmall(m));
+        }
+        if ef_construction == 0 {
+            return Err(HnswConfigError::ZeroConstructionBeam);
+        }
+        if ef_search == 0 {
+            return Err(HnswConfigError::ZeroSearchBeam);
+        }
+        Ok(Self {
+            metric,
+            m,
+            ef_construction,
+            ef_search,
+            seed,
+        })
     }
 
     /// Returns the configured metric.
-    ///
-    /// Not implemented yet: lands alongside the private representation.
     #[must_use]
     pub fn metric(&self) -> Metric {
-        todo!()
+        self.metric
     }
 
     /// Returns the configured degree.
-    ///
-    /// Not implemented yet: lands alongside the private representation.
     #[must_use]
     pub fn m(&self) -> usize {
-        todo!()
+        self.m
     }
 
     /// Returns the configured construction beam width.
-    ///
-    /// Not implemented yet: lands alongside the private representation.
     #[must_use]
     pub fn ef_construction(&self) -> usize {
-        todo!()
+        self.ef_construction
     }
 
     /// Returns the configured search beam width.
-    ///
-    /// Not implemented yet: lands alongside the private representation.
     #[must_use]
     pub fn ef_search(&self) -> usize {
-        todo!()
+        self.ef_search
     }
 
     /// Returns the configured RNG seed.
-    ///
-    /// Not implemented yet: lands alongside the private representation.
     #[must_use]
     pub fn seed(&self) -> u64 {
-        todo!()
+        self.seed
     }
 
     /// Maximum degree at layer 0 (twice `m`).
@@ -119,7 +126,7 @@ impl HnswConfig {
     /// Level normalization factor: `1 / ln(m)`. Used by `SplitMix64::next_level`.
     #[must_use]
     pub fn m_l(&self) -> f64 {
-        // m >= 2 by construction (Default enforces this); division is safe.
+        // m >= 2 by construction (HnswConfig::new enforces this); division is safe.
         #[allow(clippy::cast_precision_loss)]
         let m = self.m as f64;
         1.0 / m.ln()
@@ -138,6 +145,47 @@ impl Default for HnswConfig {
             ef_construction: 200,
             ef_search: 64,
             seed: DEFAULT_SEED,
+        }
+    }
+}
+
+/// Private wire/disk mirror of [`HnswConfig`], with the exact same field
+/// shape and order as the struct before the validating constructor landed
+/// (`metric`, `m`, `ef_construction`, `ef_search`, `seed`). Deserialization
+/// always funnels through [`HnswConfig::new`] via `TryFrom`, so a value that
+/// violates an invariant (for example `m == 1`) cannot survive
+/// deserialization.
+#[derive(Serialize, Deserialize)]
+struct HnswConfigRepr {
+    metric: Metric,
+    m: usize,
+    ef_construction: usize,
+    ef_search: usize,
+    seed: u64,
+}
+
+impl TryFrom<HnswConfigRepr> for HnswConfig {
+    type Error = HnswConfigError;
+
+    fn try_from(repr: HnswConfigRepr) -> Result<Self, Self::Error> {
+        Self::new(
+            repr.metric,
+            repr.m,
+            repr.ef_construction,
+            repr.ef_search,
+            repr.seed,
+        )
+    }
+}
+
+impl From<HnswConfig> for HnswConfigRepr {
+    fn from(config: HnswConfig) -> Self {
+        Self {
+            metric: config.metric,
+            m: config.m,
+            ef_construction: config.ef_construction,
+            ef_search: config.ef_search,
+            seed: config.seed,
         }
     }
 }

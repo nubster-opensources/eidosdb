@@ -74,13 +74,7 @@ mod tests {
     #[test]
     fn hnsw_cosine_recall_above_threshold() {
         use eidosdb_hnsw::{HnswConfig, HnswIndex};
-        let cfg = HnswConfig {
-            metric: Metric::Cosine,
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            seed: 1,
-        };
+        let cfg = HnswConfig::new(Metric::Cosine, 16, 200, 64, 1).expect("valid config");
         let dataset = generate(1, 16, 500, 50);
         let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
@@ -94,13 +88,7 @@ mod tests {
     #[test]
     fn hnsw_euclidean_recall_above_threshold() {
         use eidosdb_hnsw::{HnswConfig, HnswIndex};
-        let cfg = HnswConfig {
-            metric: Metric::Euclidean,
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            seed: 2,
-        };
+        let cfg = HnswConfig::new(Metric::Euclidean, 16, 200, 64, 2).expect("valid config");
         let dataset = generate(2, 16, 500, 50);
         let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
@@ -114,13 +102,7 @@ mod tests {
     #[test]
     fn hnsw_dotproduct_recall_above_threshold() {
         use eidosdb_hnsw::{HnswConfig, HnswIndex};
-        let cfg = HnswConfig {
-            metric: Metric::DotProduct,
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            seed: 3,
-        };
+        let cfg = HnswConfig::new(Metric::DotProduct, 16, 200, 64, 3).expect("valid config");
         let dataset = generate(3, 16, 500, 50);
         let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
