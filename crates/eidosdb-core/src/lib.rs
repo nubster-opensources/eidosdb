@@ -1,4 +1,7 @@
 //! Core domain of `EidosDB`: the `VectorIndex` port and the Flat exact adapter.
+//!
+//! Types that carry an invariant never derive a bare `Deserialize`; see
+//! `CONTRIBUTING.md` and [`Dimension`] for the validating-constructor pattern.
 
 mod dimension;
 pub use dimension::{Dimension, DimensionError};

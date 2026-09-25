@@ -20,6 +20,19 @@ In short:
 - **English everywhere**: all rustdoc comments, public APIs, and documentation
   are written in English.
 
+## Validated types and serde
+
+A type that enforces an invariant (a non-zero dimension, a bounded degree,
+anything a raw constructor could violate) never derives a bare `Deserialize`.
+Deserialization always goes through the validating constructor, wired with
+`#[serde(try_from = "...")]` (and `into = "..."` for the write side). When the
+on-disk or wire shape differs from the public API, mirror it in a private
+struct of the same shape and implement `TryFrom` on it.
+
+`Dimension` is the reference example: it wraps a private `NonZeroU32` and
+derives `#[serde(try_from = "u32", into = "u32")]`, so `Dimension::try_from`
+is the only path a deserialized value can take.
+
 ## Local setup
 
 ```bash
