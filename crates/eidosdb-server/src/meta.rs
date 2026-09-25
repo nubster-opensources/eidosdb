@@ -79,4 +79,25 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         assert!(read_meta(dir.path()).is_err());
     }
+
+    /// Backward compatibility guard: a `collection.meta` file written before
+    /// this lot serialized `dimension` as a plain JSON number (the newtype's
+    /// only field). Hand-written on purpose, never generated from this
+    /// code, so a change to the wire format shows up here first.
+    #[test]
+    fn pre_lot_json_with_numeric_dimension_still_reads() {
+        let json = r#"{
+            "name": "notes",
+            "metric": "Cosine",
+            "dimension": 3,
+            "index_type": "Flat",
+            "hnsw": null
+        }"#;
+        let meta: CollectionMeta = serde_json::from_str(json).expect("pre-lot JSON deserializes");
+        assert_eq!(meta.name, "notes");
+        assert_eq!(meta.metric, Metric::Cosine);
+        assert_eq!(meta.dimension, Dimension(3));
+        assert_eq!(meta.index_type, IndexTypeChoice::Flat);
+        assert_eq!(meta.hnsw, None);
+    }
 }

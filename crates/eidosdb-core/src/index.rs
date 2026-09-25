@@ -54,3 +54,13 @@ pub trait VectorIndex {
         self.search_filtered(query, k, self.metric(), &|_| true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::VectorIndex;
+
+    /// Compile-time guard: `VectorIndex` must stay object-safe (any method
+    /// added after 0.1 needs a default implementation) so callers can hold a
+    /// `&dyn VectorIndex`.
+    fn _vector_index_is_object_safe(_: &dyn VectorIndex) {}
+}

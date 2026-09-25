@@ -17,6 +17,25 @@ pub enum Metric {
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Score(pub f32);
 
+impl Score {
+    /// Builds a score from a raw value.
+    ///
+    /// Not implemented yet: no validation is applied, a score can hold any
+    /// `f32` a metric produces, including negative ones.
+    #[must_use]
+    pub const fn new(_value: f32) -> Self {
+        todo!()
+    }
+
+    /// Returns the raw value.
+    ///
+    /// Not implemented yet: lands alongside the private representation.
+    #[must_use]
+    pub const fn value(self) -> f32 {
+        todo!()
+    }
+}
+
 impl Metric {
     /// Scores two equal-length slices under this metric.
     ///
@@ -59,7 +78,12 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::Metric;
+    use super::{Metric, Score};
+
+    #[test]
+    fn score_restores_a_negative_raw_value() {
+        assert!((Score::new(-0.5).value() - -0.5).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn cosine_of_identical_unit_vectors_is_one() {

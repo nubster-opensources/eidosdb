@@ -4,6 +4,17 @@
 //! 64-bit state. It is seeded once at index creation and produces a fully
 //! deterministic sequence: same seed, same insertion order = identical graph.
 
+/// Hard ceiling on the level a node can be sampled at.
+///
+/// Not wired into [`SplitMix64::next_level`] yet: the defense-in-depth clamp
+/// lands in the Building phase of this lot. Sixty-four layers is already out
+/// of reach for any realistic population once `m >= 2`.
+#[allow(
+    dead_code,
+    reason = "consumed by the Building-phase clamp in next_level, referenced today only by its guard test"
+)]
+pub(crate) const MAX_LEVEL: usize = 64;
+
 /// A seeded, deterministic 64-bit generator based on the `SplitMix64` algorithm.
 pub(crate) struct SplitMix64 {
     state: u64,
@@ -152,6 +163,22 @@ mod tests {
         for _ in 0..10_000 {
             // usize is always >= 0 by type; this checks no panic / overflow.
             let _ = rng.next_level(m_l);
+        }
+    }
+
+    #[test]
+    fn next_level_is_bounded_for_infinite_m_l() {
+        // m_l = infinity happens when m = 1 slips past validation upstream
+        // (m_l = 1 / ln(1) = inf): the sampler must not return an
+        // unbounded level, and must not panic.
+        let mut rng = SplitMix64::new(7);
+        for _ in 0..1_000 {
+            let level = rng.next_level(f64::INFINITY);
+            assert!(
+                level <= super::MAX_LEVEL,
+                "level {level} exceeds MAX_LEVEL ({})",
+                super::MAX_LEVEL
+            );
         }
     }
 

@@ -37,3 +37,12 @@ pub trait LexicalIndex {
         is_admissible: &dyn Fn(&VectorId) -> bool,
     ) -> Vec<(VectorId, f64)>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::LexicalIndex;
+
+    /// Compile-time guard: `LexicalIndex` must stay object-safe, mirroring
+    /// the same contract as `VectorIndex`.
+    fn _lexical_index_is_object_safe(_: &dyn LexicalIndex) {}
+}

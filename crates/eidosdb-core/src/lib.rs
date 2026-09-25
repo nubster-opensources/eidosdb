@@ -1,7 +1,7 @@
 //! Core domain of `EidosDB`: the `VectorIndex` port and the Flat exact adapter.
 
 mod dimension;
-pub use dimension::Dimension;
+pub use dimension::{Dimension, DimensionError};
 
 mod vector_id;
 pub use vector_id::VectorId;
