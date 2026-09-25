@@ -15,24 +15,22 @@ pub enum Metric {
 
 /// A normalized similarity score where a greater value always means a closer match.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct Score(pub f32);
+pub struct Score(f32);
 
 impl Score {
     /// Builds a score from a raw value.
     ///
-    /// Not implemented yet: no validation is applied, a score can hold any
-    /// `f32` a metric produces, including negative ones.
+    /// No validation is applied: a score can hold any `f32` a metric
+    /// produces, including negative ones.
     #[must_use]
-    pub const fn new(_value: f32) -> Self {
-        todo!()
+    pub const fn new(value: f32) -> Self {
+        Self(value)
     }
 
     /// Returns the raw value.
-    ///
-    /// Not implemented yet: lands alongside the private representation.
     #[must_use]
     pub const fn value(self) -> f32 {
-        todo!()
+        self.0
     }
 }
 
@@ -44,9 +42,9 @@ impl Metric {
     pub fn score(self, a: &[f32], b: &[f32]) -> Score {
         debug_assert_eq!(a.len(), b.len(), "score requires equal-length slices");
         match self {
-            Metric::Cosine => Score(cosine(a, b)),
-            Metric::DotProduct => Score(dot(a, b)),
-            Metric::Euclidean => Score(-euclidean(a, b)),
+            Metric::Cosine => Score::new(cosine(a, b)),
+            Metric::DotProduct => Score::new(dot(a, b)),
+            Metric::Euclidean => Score::new(-euclidean(a, b)),
         }
     }
 }

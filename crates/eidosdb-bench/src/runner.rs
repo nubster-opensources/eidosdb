@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn flat_against_itself_has_perfect_recall() {
         let dataset = generate(1, 8, 200, 10);
-        let index = FlatIndex::new(Metric::Cosine, Dimension(8));
+        let index = FlatIndex::new(Metric::Cosine, Dimension::new(8).unwrap());
         let report = run(index, &dataset, 10);
         assert!((report.mean_recall - 1.0).abs() < 1e-6);
         assert_eq!(report.query_count, 10);
@@ -82,7 +82,7 @@ mod tests {
             seed: 1,
         };
         let dataset = generate(1, 16, 500, 50);
-        let index = HnswIndex::new(cfg, Dimension(16));
+        let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
         assert!(
             report.mean_recall >= 0.90,
@@ -102,7 +102,7 @@ mod tests {
             seed: 2,
         };
         let dataset = generate(2, 16, 500, 50);
-        let index = HnswIndex::new(cfg, Dimension(16));
+        let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
         assert!(
             report.mean_recall >= 0.90,
@@ -122,7 +122,7 @@ mod tests {
             seed: 3,
         };
         let dataset = generate(3, 16, 500, 50);
-        let index = HnswIndex::new(cfg, Dimension(16));
+        let index = HnswIndex::new(cfg, Dimension::new(16).unwrap());
         let report = run(index, &dataset, 10);
         assert!(
             report.mean_recall >= 0.90,

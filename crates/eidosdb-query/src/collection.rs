@@ -170,7 +170,7 @@ mod tests {
 
     fn collection() -> Collection<FlatIndex, InMemoryLexicalIndex, InMemoryPayloadStore> {
         Collection::new(
-            FlatIndex::new(Metric::Cosine, Dimension(2)),
+            FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap()),
             InMemoryLexicalIndex::new(),
             InMemoryPayloadStore::new(),
         )
@@ -309,7 +309,7 @@ mod tests {
             let mut oracle: Vec<(VectorId, f32)> = expected
                 .iter()
                 .filter(|(_, _, bucket)| *bucket == 1)
-                .map(|(id, v, _)| (*id, Metric::Cosine.score(q.as_slice(), v).0))
+                .map(|(id, v, _)| (*id, Metric::Cosine.score(q.as_slice(), v).value()))
                 .collect();
             oracle.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 

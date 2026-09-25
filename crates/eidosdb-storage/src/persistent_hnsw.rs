@@ -178,7 +178,8 @@ impl PersistentHnswIndex {
         let metric = metric_from_u8(cfg_row.metric_byte)?;
         let dim = usize::try_from(cfg_row.dimension)
             .map_err(|_| StorageError::Corruption("dimension exceeds usize".to_string()))?;
-        let dimension = Dimension(dim);
+        let dimension = Dimension::try_from(cfg_row.dimension)
+            .map_err(|error| StorageError::Corruption(format!("invalid dimension: {error}")))?;
         let config = HnswConfig {
             metric,
             m: usize::try_from(cfg_row.m).unwrap_or(16),
@@ -495,8 +496,8 @@ mod tests {
     #[test]
     fn create_open_insert_search() {
         let dir = TempDir::new().expect("tempdir");
-        let mut index =
-            PersistentHnswIndex::create(dir.path(), cfg(), Dimension(2)).expect("create");
+        let mut index = PersistentHnswIndex::create(dir.path(), cfg(), Dimension::new(2).unwrap())
+            .expect("create");
         let near = VectorId::new();
         let far = VectorId::new();
         index.insert(near, emb(&[1.0, 0.0])).expect("near");
@@ -509,8 +510,8 @@ mod tests {
     #[test]
     fn remove_tombstones_and_excludes_from_search() {
         let dir = TempDir::new().expect("tempdir");
-        let mut index =
-            PersistentHnswIndex::create(dir.path(), cfg(), Dimension(2)).expect("create");
+        let mut index = PersistentHnswIndex::create(dir.path(), cfg(), Dimension::new(2).unwrap())
+            .expect("create");
         let keep = VectorId::new();
         let drop_id = VectorId::new();
         index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
@@ -528,7 +529,8 @@ mod tests {
         let id = VectorId::new();
         {
             let mut index =
-                PersistentHnswIndex::create(dir.path(), cfg(), Dimension(2)).expect("create");
+                PersistentHnswIndex::create(dir.path(), cfg(), Dimension::new(2).unwrap())
+                    .expect("create");
             index.insert(id, emb(&[1.0, 0.0])).expect("insert");
         }
         let index = PersistentHnswIndex::open(dir.path()).expect("reopen");
@@ -567,7 +569,7 @@ mod tests {
             // (a) Build persistent, record search results and pre-close snapshot.
             let (r_persist, snapshot_before) = {
                 let mut persistent =
-                    PersistentHnswIndex::create(dir.path(), base_cfg, Dimension(4))
+                    PersistentHnswIndex::create(dir.path(), base_cfg, Dimension::new(4).unwrap())
                         .expect("create");
                 for (id, v) in ids.iter().zip(&vectors) {
                     persistent.insert(*id, emb(v)).expect("p insert");
@@ -597,7 +599,7 @@ mod tests {
             );
 
             // (c) Pure in-memory build with same seed and order must match persistent.
-            let mut mem = HnswIndex::new(base_cfg, Dimension(4));
+            let mut mem = HnswIndex::new(base_cfg, Dimension::new(4).unwrap());
             for (id, v) in ids.iter().zip(&vectors) {
                 mem.insert(*id, emb(v)).expect("m insert");
             }
@@ -636,12 +638,17 @@ mod tests {
             })
             .collect();
 
-        let bulk =
-            PersistentHnswIndex::bulk_load(dir_bulk.path(), bulk_cfg, Dimension(2), items.clone())
-                .expect("bulk_load");
+        let bulk = PersistentHnswIndex::bulk_load(
+            dir_bulk.path(),
+            bulk_cfg,
+            Dimension::new(2).unwrap(),
+            items.clone(),
+        )
+        .expect("bulk_load");
 
         let mut indv =
-            PersistentHnswIndex::create(dir_indv.path(), bulk_cfg, Dimension(2)).expect("create");
+            PersistentHnswIndex::create(dir_indv.path(), bulk_cfg, Dimension::new(2).unwrap())
+                .expect("create");
         for (id, e) in &items {
             indv.insert(*id, e.clone()).expect("indv insert");
         }
@@ -679,7 +686,8 @@ mod tests {
         let noise = VectorId::new();
         {
             let mut index =
-                PersistentHnswIndex::create(dir.path(), life_cfg, Dimension(2)).expect("create");
+                PersistentHnswIndex::create(dir.path(), life_cfg, Dimension::new(2).unwrap())
+                    .expect("create");
             index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
             index.insert(noise, emb(&[0.0, 1.0])).expect("noise");
             // Tombstone `noise` then compact to reclaim space.
@@ -726,7 +734,8 @@ mod tests {
             seed: 0,
         };
         let mut index =
-            PersistentHnswIndex::create(dir.path(), compact_cfg, Dimension(2)).expect("create");
+            PersistentHnswIndex::create(dir.path(), compact_cfg, Dimension::new(2).unwrap())
+                .expect("create");
         let keep = VectorId::new();
         for _ in 0..5 {
             let noise = VectorId::new();

@@ -123,8 +123,7 @@ fn collection_info_to_view(info: pb::CollectionInfo) -> Result<CollectionMetaVie
     let index_type = pb::IndexType::try_from(info.index_type)
         .map_err(|_| out_of_range("index_type"))
         .and_then(|t| index_type_from_pb(t).map_err(ClientError::Conversion))?;
-    let dimension =
-        Dimension(usize::try_from(info.dimension).map_err(|_| out_of_range("dimension"))?);
+    let dimension = Dimension::try_from(info.dimension).map_err(|_| out_of_range("dimension"))?;
     Ok(CollectionMetaView {
         name: info.name,
         metric,

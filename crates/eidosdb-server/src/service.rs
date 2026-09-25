@@ -140,16 +140,10 @@ impl EidosDb for EidosDbService {
             .map_err(|_| Status::invalid_argument("unknown metric value"))?;
         let metric = metric_from_pb(pb_metric).map_err(|e| conversion_error_to_status(&e))?;
 
-        // Reject zero dimension early.
-        if req.dimension == 0 {
-            return Err(Status::invalid_argument(
-                "dimension must be greater than zero",
-            ));
-        }
-        let dimension = Dimension(
-            usize::try_from(req.dimension)
-                .map_err(|_| Status::invalid_argument("dimension out of range"))?,
-        );
+        // `Dimension::try_from` rejects a zero dimension with the same message
+        // this endpoint returned before the type could enforce it itself.
+        let dimension = Dimension::try_from(req.dimension)
+            .map_err(|error| Status::invalid_argument(error.to_string()))?;
 
         // Decode index type (i32 -> pb enum -> local choice).
         let pb_index_type = pb::IndexType::try_from(req.index_type)
@@ -234,7 +228,7 @@ impl EidosDb for EidosDbService {
                 pb::CollectionInfo {
                     name: meta.name,
                     metric: metric_to_pb(meta.metric) as i32,
-                    dimension: u32::try_from(meta.dimension.0).unwrap_or(0),
+                    dimension: u32::try_from(meta.dimension.get()).unwrap_or(0),
                     index_type: index_type_to_pb(meta.index_type) as i32,
                     count,
                 }
@@ -261,7 +255,7 @@ impl EidosDb for EidosDbService {
         Ok(Response::new(pb::CollectionInfo {
             name: meta.name,
             metric: metric_to_pb(meta.metric) as i32,
-            dimension: u32::try_from(meta.dimension.0).unwrap_or(0),
+            dimension: u32::try_from(meta.dimension.get()).unwrap_or(0),
             index_type: index_type_to_pb(meta.index_type) as i32,
             count,
         }))

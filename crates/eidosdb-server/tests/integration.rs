@@ -601,9 +601,12 @@ async fn server_search_matches_direct_collection_kind() {
 
     // 2. Direct: a CollectionKind HNSW on its own tempdir, default config.
     let direct_dir = tempfile::tempdir().expect("dir");
-    let mut direct =
-        CollectionKind::create_hnsw(direct_dir.path(), HnswConfig::default(), Dimension(3))
-            .expect("direct");
+    let mut direct = CollectionKind::create_hnsw(
+        direct_dir.path(),
+        HnswConfig::default(),
+        Dimension::new(3).unwrap(),
+    )
+    .expect("direct");
     for (id, v) in &points {
         direct
             .upsert(*id, Embedding::new(v.clone()).expect("emb"), None, None)

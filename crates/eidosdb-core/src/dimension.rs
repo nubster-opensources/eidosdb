@@ -1,15 +1,15 @@
 //! The dimensionality of an embedding space.
 
+use std::num::NonZeroU32;
+
 use serde::{Deserialize, Serialize};
 
 /// Number of components in an embedding vector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Dimension(pub usize);
+#[serde(try_from = "u32", into = "u32")]
+pub struct Dimension(NonZeroU32);
 
 /// Errors returned when validating a [`Dimension`].
-///
-/// Not implemented yet: this is the target shape for the upcoming
-/// `Dimension::new` constructor; call sites still build `Dimension` directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum DimensionError {
@@ -23,38 +23,38 @@ pub enum DimensionError {
 
 impl Dimension {
     /// Returns the dimension as a `usize`.
+    ///
+    /// The underlying value is always a valid `u32`, and every target this
+    /// crate supports has a `usize` at least as wide as `u32`, so the
+    /// fallback branch below is unreachable in practice.
     #[must_use]
     pub fn get(self) -> usize {
-        self.0
+        usize::try_from(self.0.get()).unwrap_or(usize::MAX)
     }
 
     /// Validates and builds a dimension from a component count.
-    ///
-    /// Not implemented yet: the constructor and the underlying private
-    /// representation land in the Building phase of this lot.
     ///
     /// # Errors
     ///
     /// Returns [`DimensionError::Zero`] when `components` is zero, or
     /// [`DimensionError::TooLarge`] when it exceeds `u32::MAX`.
-    pub fn new(_components: usize) -> Result<Self, DimensionError> {
-        todo!()
+    pub fn new(components: usize) -> Result<Self, DimensionError> {
+        let raw = u32::try_from(components).map_err(|_| DimensionError::TooLarge(components))?;
+        NonZeroU32::new(raw).map(Self).ok_or(DimensionError::Zero)
     }
 }
 
 impl TryFrom<u32> for Dimension {
     type Error = DimensionError;
 
-    /// Not implemented yet: lands alongside the private representation.
-    fn try_from(_value: u32) -> Result<Self, Self::Error> {
-        todo!()
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        NonZeroU32::new(value).map(Self).ok_or(DimensionError::Zero)
     }
 }
 
 impl From<Dimension> for u32 {
-    /// Not implemented yet: lands alongside the private representation.
-    fn from(_dimension: Dimension) -> Self {
-        todo!()
+    fn from(dimension: Dimension) -> Self {
+        dimension.0.get()
     }
 }
 
@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn exposes_inner_value() {
-        assert_eq!(Dimension(768).get(), 768);
+        assert_eq!(Dimension::new(42).expect("42 is valid").get(), 42);
     }
 
     #[test]

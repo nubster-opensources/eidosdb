@@ -66,7 +66,7 @@ mod tests {
         let meta = CollectionMeta {
             name: "notes".to_string(),
             metric: Metric::Cosine,
-            dimension: Dimension(3),
+            dimension: Dimension::new(3).unwrap(),
             index_type: IndexTypeChoice::Hnsw,
             hnsw: Some(HnswConfig::default()),
         };
@@ -96,7 +96,7 @@ mod tests {
         let meta: CollectionMeta = serde_json::from_str(json).expect("pre-lot JSON deserializes");
         assert_eq!(meta.name, "notes");
         assert_eq!(meta.metric, Metric::Cosine);
-        assert_eq!(meta.dimension, Dimension(3));
+        assert_eq!(meta.dimension, Dimension::new(3).unwrap());
         assert_eq!(meta.index_type, IndexTypeChoice::Flat);
         assert_eq!(meta.hnsw, None);
     }

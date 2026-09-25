@@ -26,7 +26,7 @@ mod tests {
     fn neighbor(id: VectorId) -> Neighbor {
         Neighbor {
             id,
-            score: Score(1.0),
+            score: Score::new(1.0),
         }
     }
 

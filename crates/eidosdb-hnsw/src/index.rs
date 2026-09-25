@@ -184,14 +184,14 @@ struct Candidate {
 impl Candidate {
     fn new(score: Score, node: NodeIdx, id: VectorId) -> Self {
         Self {
-            score_bits: score.0.to_bits(),
+            score_bits: score.value().to_bits(),
             node,
             id,
         }
     }
 
     fn score(&self) -> Score {
-        Score(f32::from_bits(self.score_bits))
+        Score::new(f32::from_bits(self.score_bits))
     }
 }
 
@@ -199,8 +199,8 @@ impl Ord for Candidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Higher score = closer = comes first in max-heap.
         self.score()
-            .0
-            .total_cmp(&other.score().0)
+            .value()
+            .total_cmp(&other.score().value())
             .then_with(|| other.id.cmp(&self.id)) // tie-break: ascending id first
     }
 }
@@ -239,8 +239,8 @@ fn greedy_descent(
             let mut improved = false;
             for &neighbor in graph.neighbors(current, layer) {
                 let s = metric.score(query, graph.node_embedding(neighbor).unwrap_or(&[]));
-                let is_tie = s.0.total_cmp(&current_score.0).is_eq();
-                if s.0 > current_score.0
+                let is_tie = s.value().total_cmp(&current_score.value()).is_eq();
+                if s.value() > current_score.value()
                     || (is_tie
                         && graph.node_id(neighbor).unwrap_or_else(nil_id)
                             < graph.node_id(current).unwrap_or_else(nil_id))
@@ -297,13 +297,13 @@ fn beam_search(
 
     // Score of the worst (lowest-scoring) candidate currently in result.
     let worst_in_result = |r: &BinaryHeap<std::cmp::Reverse<Candidate>>| -> f32 {
-        r.peek().map_or(f32::NEG_INFINITY, |c| c.0.score().0)
+        r.peek().map_or(f32::NEG_INFINITY, |c| c.0.score().value())
     };
 
     while let Some(candidate) = frontier.peek().copied() {
         // If the best unexplored candidate is worse than the worst in result
         // and result is full, we cannot improve result further: stop.
-        if result.len() >= ef && candidate.score().0 < worst_in_result(&result) {
+        if result.len() >= ef && candidate.score().value() < worst_in_result(&result) {
             break;
         }
         frontier.pop();
@@ -319,7 +319,7 @@ fn beam_search(
             // Only admit live + admissible to result heap.
             if !graph.is_tombstone(neighbor)
                 && is_admissible(&nid)
-                && (result.len() < ef || s.0 > worst_in_result(&result))
+                && (result.len() < ef || s.value() > worst_in_result(&result))
             {
                 result.push(std::cmp::Reverse(Candidate::new(s, neighbor, nid)));
                 // Evict the worst (lowest-score) candidate when over capacity.
@@ -334,8 +334,8 @@ fn beam_search(
     let mut out: Vec<Candidate> = result.into_iter().map(|r| r.0).collect();
     out.sort_by(|a, b| {
         b.score()
-            .0
-            .total_cmp(&a.score().0)
+            .value()
+            .total_cmp(&a.score().value())
             .then_with(|| a.id.cmp(&b.id))
     });
     out
@@ -363,11 +363,11 @@ fn select_neighbors_heuristic(
             break;
         }
         let cand_emb = graph.node_embedding(candidate.node).unwrap_or(&[]);
-        let score_to_base = candidate.score().0; // score of candidate vs base query
+        let score_to_base = candidate.score().value(); // score of candidate vs base query
         // Accept candidate if it is closer to base than to any already-selected neighbor.
         for &sel in &selected {
             let sel_emb = graph.node_embedding(sel).unwrap_or(&[]);
-            let score_cand_to_sel = metric.score(cand_emb, sel_emb).0;
+            let score_cand_to_sel = metric.score(cand_emb, sel_emb).value();
             if score_cand_to_sel > score_to_base {
                 // Candidate is closer to selected neighbor than to base: skip it.
                 continue 'outer;
@@ -450,8 +450,8 @@ impl VectorIndex for HnswIndex {
             .collect();
         results.sort_by(|a, b| {
             b.score
-                .0
-                .total_cmp(&a.score.0)
+                .value()
+                .total_cmp(&a.score.value())
                 .then_with(|| a.id.cmp(&b.id))
         });
         results.truncate(k);
@@ -568,8 +568,8 @@ impl HnswIndex {
                         .collect();
                     pruning_candidates.sort_by(|a, b| {
                         b.score()
-                            .0
-                            .total_cmp(&a.score().0)
+                            .value()
+                            .total_cmp(&a.score().value())
                             .then_with(|| a.id.cmp(&b.id))
                     });
                     sel_neighbors = select_neighbors_heuristic(
@@ -708,16 +708,16 @@ mod tests {
 
     #[test]
     fn new_index_is_empty() {
-        let index = HnswIndex::new(config(), Dimension(2));
+        let index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         assert!(index.is_empty());
         assert_eq!(index.len(), 0);
         assert_eq!(index.metric(), Metric::Cosine);
-        assert_eq!(index.dimension(), Dimension(2));
+        assert_eq!(index.dimension(), Dimension::new(2).unwrap());
     }
 
     #[test]
     fn insert_rejects_dimension_mismatch() {
-        let mut index = HnswIndex::new(config(), Dimension(3));
+        let mut index = HnswIndex::new(config(), Dimension::new(3).unwrap());
         assert_eq!(
             index.insert(VectorId::new(), emb(&[1.0, 0.0])),
             Err(IndexError::DimensionMismatch {
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn insert_rejects_duplicate_live_id() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let id = VectorId::new();
         index.insert(id, emb(&[1.0, 0.0])).expect("first");
         assert_eq!(
@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn search_unsupported_metric_is_rejected() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         index
             .insert(VectorId::new(), emb(&[1.0, 0.0]))
             .expect("insert");
@@ -752,21 +752,21 @@ mod tests {
 
     #[test]
     fn supported_metrics_contains_only_config_metric() {
-        let index = HnswIndex::new(config(), Dimension(2));
+        let index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let supported = index.supported_metrics();
         assert_eq!(supported, &[Metric::Cosine]);
     }
 
     #[test]
     fn search_empty_index_returns_empty() {
-        let index = HnswIndex::new(config(), Dimension(2));
+        let index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let results = index.search(&emb(&[1.0, 0.0]), 10).expect("search");
         assert!(results.is_empty());
     }
 
     #[test]
     fn single_insert_is_its_own_nearest_neighbor() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let id = VectorId::new();
         index.insert(id, emb(&[1.0, 0.0])).expect("insert");
         let results = index.search(&emb(&[1.0, 0.0]), 1).expect("search");
@@ -784,8 +784,8 @@ mod tests {
             ef_search: 40,
             seed: 0,
         };
-        let mut hnsw = HnswIndex::new(cfg, Dimension(2));
-        let mut flat = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut hnsw = HnswIndex::new(cfg, Dimension::new(2).unwrap());
+        let mut flat = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let points: Vec<(VectorId, Embedding)> = (0..20)
             .map(|i| {
                 #[allow(clippy::cast_precision_loss)]
@@ -806,7 +806,7 @@ mod tests {
 
     #[test]
     fn remove_returns_true_for_live_id_false_otherwise() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let id = VectorId::new();
         index.insert(id, emb(&[1.0, 0.0])).expect("insert");
         assert_eq!(index.remove(id), Ok(true));
@@ -816,7 +816,7 @@ mod tests {
 
     #[test]
     fn tombstone_not_returned_in_search() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let keep = VectorId::new();
         let drop = VectorId::new();
         index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn len_excludes_tombstones() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let id = VectorId::new();
         index.insert(id, emb(&[1.0, 0.0])).expect("insert");
         assert_eq!(index.len(), 1);
@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn reinsert_tombstoned_id_succeeds() {
-        let mut index = HnswIndex::new(config(), Dimension(2));
+        let mut index = HnswIndex::new(config(), Dimension::new(2).unwrap());
         let id = VectorId::new();
         index.insert(id, emb(&[1.0, 0.0])).expect("first");
         index.remove(id).expect("remove");
@@ -857,7 +857,7 @@ mod tests {
             ef_search: 40,
             ..HnswConfig::default()
         };
-        let mut index = HnswIndex::new(cfg, Dimension(2));
+        let mut index = HnswIndex::new(cfg, Dimension::new(2).unwrap());
         let keep = VectorId::new();
         let drop = VectorId::new();
         index.insert(keep, emb(&[1.0, 0.0])).expect("keep");
@@ -879,8 +879,8 @@ mod tests {
             ef_search: 40,
             ..HnswConfig::default()
         };
-        let mut index = HnswIndex::new(cfg, Dimension(2));
-        let mut flat = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut index = HnswIndex::new(cfg, Dimension::new(2).unwrap());
+        let mut flat = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let first = VectorId::new();
         let second = VectorId::new();
         for id in [first, second] {
@@ -936,8 +936,8 @@ mod tests {
         ];
         candidates.sort_by(|a, b| {
             b.score()
-                .0
-                .total_cmp(&a.score().0)
+                .value()
+                .total_cmp(&a.score().value())
                 .then_with(|| a.id.cmp(&b.id))
         });
 
@@ -974,8 +974,8 @@ mod tests {
                 seed: 42,
                 ..HnswConfig::default()
             };
-            let mut a = HnswIndex::new(cfg, Dimension(4));
-            let mut b = HnswIndex::new(cfg, Dimension(4));
+            let mut a = HnswIndex::new(cfg, Dimension::new(4).unwrap());
+            let mut b = HnswIndex::new(cfg, Dimension::new(4).unwrap());
             let ids: Vec<VectorId> = (0..vectors.len())
                 .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128"))))
                 .collect();
@@ -1004,8 +1004,8 @@ mod tests {
                 seed: 7,
                 ..HnswConfig::default()
             };
-            let mut hnsw = HnswIndex::new(cfg, Dimension(4));
-            let mut flat = FlatIndex::new(Metric::Cosine, Dimension(4));
+            let mut hnsw = HnswIndex::new(cfg, Dimension::new(4).unwrap());
+            let mut flat = FlatIndex::new(Metric::Cosine, Dimension::new(4).unwrap());
             let ids: Vec<VectorId> = (0..vectors.len())
                 .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128") + 100)))
                 .collect();
@@ -1062,7 +1062,7 @@ mod tests {
                 seed: 99,
                 ..HnswConfig::default()
             };
-            let mut index = HnswIndex::new(cfg, Dimension(4));
+            let mut index = HnswIndex::new(cfg, Dimension::new(4).unwrap());
             let ids: Vec<VectorId> = (0..vectors.len())
                 .map(|i| VectorId::from_uuid(uuid::Uuid::from_u128(u128::try_from(i).expect("index fits u128") + 200)))
                 .collect();

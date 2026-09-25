@@ -357,7 +357,7 @@ fn payload_to_json(payload: &Payload) -> Json {
 fn hit_to_json(hit: &SearchHit) -> Json {
     json!({
         "id": hit.id.as_uuid().to_string(),
-        "score": hit.score.0,
+        "score": hit.score.value(),
         "payload": hit.payload.as_ref().map(payload_to_json),
     })
 }
@@ -408,7 +408,8 @@ async fn handle_create(
         .create_collection(CollectionSpec {
             name: name.clone(),
             metric,
-            dimension: Dimension(to_usize(dimension)?),
+            dimension: Dimension::try_from(dimension)
+                .map_err(|error| CliError::Usage(error.to_string()))?,
             index_type,
             hnsw,
         })

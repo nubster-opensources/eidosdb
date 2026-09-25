@@ -293,7 +293,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn dim() -> Dimension {
-        Dimension(4)
+        Dimension::new(4).unwrap()
     }
 
     fn emb(values: [f32; 4]) -> Embedding {

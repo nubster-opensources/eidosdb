@@ -310,7 +310,7 @@ mod tests {
         CollectionMeta {
             name: name.to_string(),
             metric: Metric::Cosine,
-            dimension: Dimension(3),
+            dimension: Dimension::new(3).unwrap(),
             index_type: IndexTypeChoice::Hnsw,
             hnsw: Some(HnswConfig::default()),
         }
