@@ -15,6 +15,7 @@
 //! no re-insertion, no RNG draw on restore.
 
 use crate::error::StorageError;
+use crate::manifest::{metric_from_u8, metric_to_u8};
 use crate::redb_compat;
 use crate::segment::Segment;
 use eidosdb_core::{Dimension, Embedding, IndexError, Metric, Neighbor, VectorId, VectorIndex};
@@ -66,30 +67,6 @@ struct MetaState {
     node_count: u64,
 }
 
-/// `Metric` is `#[non_exhaustive]`: a variant added after this format was
-/// frozen has no assigned byte and encodes as `255`, a value
-/// `metric_from_u8` already rejects as [`StorageError::Corruption`] like any
-/// other unrecognized byte, rather than silently mislabeling it.
-fn metric_to_u8(metric: Metric) -> u8 {
-    match metric {
-        Metric::Cosine => 0,
-        Metric::DotProduct => 1,
-        Metric::Euclidean => 2,
-        _ => 255,
-    }
-}
-
-fn metric_from_u8(v: u8) -> Result<Metric, StorageError> {
-    match v {
-        0 => Ok(Metric::Cosine),
-        1 => Ok(Metric::DotProduct),
-        2 => Ok(Metric::Euclidean),
-        other => Err(StorageError::Corruption(format!(
-            "unknown metric byte {other}"
-        ))),
-    }
-}
-
 fn catalog_err<E: std::fmt::Display>(e: E) -> StorageError {
     StorageError::Catalog(e.to_string())
 }
@@ -120,6 +97,7 @@ impl PersistentHnswIndex {
         config: HnswConfig,
         dimension: Dimension,
     ) -> Result<Self, StorageError> {
+        let metric_byte = metric_to_u8(config.metric())?;
         std::fs::create_dir_all(path)?;
         let db = redb_compat::create(&path.join(CATALOG_FILE)).map_err(catalog_err)?;
         let txn = db.begin_write().map_err(catalog_err)?;
@@ -128,7 +106,7 @@ impl PersistentHnswIndex {
             let _ = txn.open_table(NODES).map_err(catalog_err)?;
             let mut meta_table = txn.open_table(META).map_err(catalog_err)?;
             let cfg = MetaConfig {
-                metric_byte: metric_to_u8(config.metric()),
+                metric_byte,
                 dimension: u32::try_from(dimension.get()).map_err(|_| {
                     StorageError::FormatMismatch("dimension exceeds u32".to_string())
                 })?,
