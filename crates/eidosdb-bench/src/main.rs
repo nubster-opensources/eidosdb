@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (report, label) = match cli.backend {
         Backend::Flat => {
-            let index = FlatIndex::new(Metric::Cosine, Dimension(cli.dimension));
+            let index = FlatIndex::new(Metric::Cosine, Dimension::new(cli.dimension)?);
             let report = run(index, &dataset, cli.k);
             (report, "FlatIndex (Cosine)")
         }
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let index = eidosdb_storage::PersistentFlatIndex::open(
                 temp.path(),
                 Metric::Cosine,
-                Dimension(cli.dimension),
+                Dimension::new(cli.dimension)?,
             )?;
             let report = run(index, &dataset, cli.k);
             (report, "PersistentFlatIndex (Cosine)")

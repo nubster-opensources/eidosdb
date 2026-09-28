@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// There is no domain-level `IndexType`; this choice is local to the gRPC layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum IndexTypeChoice {
     /// Flat brute-force index.
     Flat,
@@ -17,12 +18,18 @@ pub enum IndexTypeChoice {
 }
 
 /// Converts a domain [`Metric`] to its protobuf wire representation.
+///
+/// `Metric` is `#[non_exhaustive]`: a variant added after this match was
+/// written falls back to `pb::Metric::Unspecified`, which `metric_from_pb`
+/// already rejects as [`ConversionError::MissingField`] rather than silently
+/// mislabeling it as a known metric.
 #[must_use]
 pub fn metric_to_pb(metric: Metric) -> pb::Metric {
     match metric {
         Metric::Cosine => pb::Metric::Cosine,
         Metric::DotProduct => pb::Metric::DotProduct,
         Metric::Euclidean => pb::Metric::Euclidean,
+        _ => pb::Metric::Unspecified,
     }
 }
 

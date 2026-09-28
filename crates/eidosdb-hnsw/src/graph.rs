@@ -68,10 +68,12 @@ impl HnswGraph {
         embedding: Embedding,
         level: usize,
     ) -> Result<NodeIdx, IndexError> {
-        if embedding.dimension() != self.dimension_hint() && !self.nodes.is_empty() {
+        if let Some(expected) = self.dimension_hint()
+            && embedding.dimension() != expected
+        {
             return Err(IndexError::DimensionMismatch {
-                expected: self.dimension_hint().0,
-                got: embedding.dimension().0,
+                expected: expected.get(),
+                got: embedding.dimension().get(),
             });
         }
         if self.live.contains_key(&id) {
@@ -92,11 +94,9 @@ impl HnswGraph {
         Ok(idx)
     }
 
-    /// Returns the `Dimension` of the first node, or `Dimension(0)` when empty.
-    fn dimension_hint(&self) -> eidosdb_core::Dimension {
-        self.nodes
-            .first()
-            .map_or(Dimension(0), |n| n.embedding.dimension())
+    /// Returns the `Dimension` of the first node, or `None` when the graph is empty.
+    fn dimension_hint(&self) -> Option<Dimension> {
+        self.nodes.first().map(|n| n.embedding.dimension())
     }
 
     /// Replaces the neighbor list for `node` at `layer`.

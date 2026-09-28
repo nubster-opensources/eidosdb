@@ -2,6 +2,7 @@
 
 /// Failure modes of a `LexicalIndex` operation.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LexicalError {
     /// A document was constructed from blank text.
     #[error("document text is empty")]

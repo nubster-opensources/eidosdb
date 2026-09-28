@@ -21,7 +21,11 @@ impl Embedding {
     /// Returns the dimensionality of this embedding.
     #[must_use]
     pub fn dimension(&self) -> Dimension {
-        Dimension(self.0.len())
+        // `Embedding::new` rejects an empty vector, and a component count
+        // above `u32::MAX` would already have exhausted memory long before
+        // reaching this point, so this conversion cannot fail in practice.
+        Dimension::new(self.0.len())
+            .unwrap_or_else(|error| unreachable!("embedding length out of range: {error}"))
     }
 
     /// Returns the components as a slice.
@@ -44,7 +48,10 @@ mod tests {
     #[test]
     fn reports_its_dimension() {
         let embedding = Embedding::new(vec![1.0, 2.0, 3.0]).expect("non-empty");
-        assert_eq!(embedding.dimension(), Dimension(3));
+        assert_eq!(
+            embedding.dimension(),
+            Dimension::new(3).expect("3 is valid")
+        );
     }
 
     #[test]

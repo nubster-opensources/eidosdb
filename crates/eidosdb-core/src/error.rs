@@ -4,6 +4,7 @@ use crate::{Metric, VectorId};
 
 /// Failure modes of a `VectorIndex` operation.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IndexError {
     /// An embedding did not match the index dimension.
     #[error("dimension mismatch: index expects {expected}, got {got}")]

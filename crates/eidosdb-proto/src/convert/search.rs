@@ -109,7 +109,7 @@ pub fn hybrid_query_from_pb(
 pub fn hit_to_pb(hit: &SearchHit) -> pb::Hit {
     pb::Hit {
         id: vector_id_to_pb(hit.id),
-        score: hit.score.0,
+        score: hit.score.value(),
         payload: hit.payload.as_ref().map(payload_to_pb),
     }
 }
@@ -179,7 +179,7 @@ pub fn hit_from_pb(hit: pb::Hit) -> Result<SearchHit, ConversionError> {
     let payload = hit.payload.map(payload_from_pb).transpose()?;
     Ok(SearchHit {
         id,
-        score: Score(hit.score),
+        score: Score::new(hit.score),
         payload,
     })
 }
@@ -320,7 +320,7 @@ mod tests {
         let id = VectorId::new();
         let hit = SearchHit {
             id,
-            score: Score(0.75),
+            score: Score::new(0.75),
             payload: None,
         };
         let pb_hit = hit_to_pb(&hit);
@@ -336,12 +336,12 @@ mod tests {
         let hits = vec![
             SearchHit {
                 id: id1,
-                score: Score(0.9),
+                score: Score::new(0.9),
                 payload: None,
             },
             SearchHit {
                 id: id2,
-                score: Score(0.5),
+                score: Score::new(0.5),
                 payload: None,
             },
         ];
@@ -388,12 +388,12 @@ mod tests {
         let id = VectorId::new();
         let hit = SearchHit {
             id,
-            score: Score(0.42),
+            score: Score::new(0.42),
             payload: None,
         };
         let back = hit_from_pb(hit_to_pb(&hit)).expect("round trip");
         assert_eq!(back.id, id);
-        assert!((back.score.0 - 0.42_f32).abs() < f32::EPSILON);
+        assert!((back.score.value() - 0.42_f32).abs() < f32::EPSILON);
     }
 
     #[test]

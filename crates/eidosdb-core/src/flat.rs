@@ -88,8 +88,8 @@ impl VectorIndex for FlatIndex {
             .collect();
         scored.sort_by(|a, b| {
             b.score
-                .0
-                .total_cmp(&a.score.0)
+                .value()
+                .total_cmp(&a.score.value())
                 .then_with(|| a.id.cmp(&b.id))
         });
         scored.truncate(k);
@@ -108,14 +108,14 @@ mod tests {
 
     #[test]
     fn new_index_is_empty() {
-        let index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         assert!(index.is_empty());
         assert_eq!(index.len(), 0);
     }
 
     #[test]
     fn insert_rejects_dimension_mismatch() {
-        let mut index = FlatIndex::new(Metric::Cosine, Dimension(3));
+        let mut index = FlatIndex::new(Metric::Cosine, Dimension::new(3).unwrap());
         let err = index.insert(VectorId::new(), embedding(&[1.0, 0.0]));
         assert_eq!(
             err,
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn insert_rejects_duplicate_id() {
-        let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let id = VectorId::new();
         index
             .insert(id, embedding(&[1.0, 0.0]))
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn remove_reports_presence() {
-        let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let id = VectorId::new();
         index.insert(id, embedding(&[1.0, 0.0])).expect("insert");
         assert_eq!(index.remove(id), Ok(true));
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn search_rejects_dimension_mismatch() {
-        let index = FlatIndex::new(Metric::Cosine, Dimension(3));
+        let index = FlatIndex::new(Metric::Cosine, Dimension::new(3).unwrap());
         assert_eq!(
             index.search(&embedding(&[1.0, 0.0]), 1),
             Err(IndexError::DimensionMismatch {
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn search_returns_closest_first() {
-        let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let near = VectorId::new();
         let far = VectorId::new();
         index
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn search_truncates_to_k() {
-        let mut index = FlatIndex::new(Metric::Euclidean, Dimension(1));
+        let mut index = FlatIndex::new(Metric::Euclidean, Dimension::new(1).unwrap());
         for value in [0.0_f32, 1.0, 2.0, 3.0] {
             index
                 .insert(VectorId::new(), embedding(&[value]))
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn a_vector_is_its_own_nearest_neighbor() {
-        let mut index = FlatIndex::new(Metric::Euclidean, Dimension(3));
+        let mut index = FlatIndex::new(Metric::Euclidean, Dimension::new(3).unwrap());
         let target = VectorId::new();
         index
             .insert(target, embedding(&[0.5, 0.5, 0.5]))
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn ties_are_broken_by_ascending_id() {
-        let mut index = FlatIndex::new(Metric::DotProduct, Dimension(2));
+        let mut index = FlatIndex::new(Metric::DotProduct, Dimension::new(2).unwrap());
         let first = VectorId::new();
         let second = VectorId::new();
         // Identical embeddings -> identical score for any query -> a tie.
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn supported_metrics_lists_all_three() {
-        let index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let metrics = index.supported_metrics();
         assert!(metrics.contains(&Metric::Cosine));
         assert!(metrics.contains(&Metric::DotProduct));
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn search_filtered_excludes_non_admissible_ids() {
-        let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+        let mut index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let kept = VectorId::new();
         let blocked = VectorId::new();
         index.insert(kept, embedding(&[1.0, 0.0])).expect("kept");
@@ -257,8 +257,8 @@ mod tests {
 
     #[test]
     fn search_filtered_honors_requested_metric() {
-        let mut cosine_index = FlatIndex::new(Metric::Cosine, Dimension(2));
-        let mut euclidean_oracle = FlatIndex::new(Metric::Euclidean, Dimension(2));
+        let mut cosine_index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
+        let mut euclidean_oracle = FlatIndex::new(Metric::Euclidean, Dimension::new(2).unwrap());
         let points = [[0.1_f32, 0.9], [0.8, 0.2], [0.5, 0.5]];
         for p in points {
             let id = VectorId::new();
@@ -283,14 +283,14 @@ mod tests {
                 1..30,
             )
         ) {
-            let mut index = FlatIndex::new(Metric::DotProduct, Dimension(4));
+            let mut index = FlatIndex::new(Metric::DotProduct, Dimension::new(4).unwrap());
             for v in &values {
                 index.insert(VectorId::new(), embedding(v)).expect("insert");
             }
             let results = index.search(&embedding(&[1.0, 1.0, 1.0, 1.0]), values.len())
                 .expect("search");
             for pair in results.windows(2) {
-                prop_assert!(pair[0].score.0 >= pair[1].score.0);
+                prop_assert!(pair[0].score.value() >= pair[1].score.value());
             }
         }
 
@@ -303,14 +303,14 @@ mod tests {
             )
         ) {
             let metric = [Metric::DotProduct, Metric::Cosine, Metric::Euclidean][metric_index];
-            let mut index = FlatIndex::new(metric, Dimension(4));
+            let mut index = FlatIndex::new(metric, Dimension::new(4).unwrap());
             for v in &values {
                 index.insert(VectorId::new(), embedding(v)).expect("insert");
             }
             let results = index.search(&embedding(&[1.0, 1.0, 1.0, 1.0]), values.len())
                 .expect("search");
             for pair in results.windows(2) {
-                prop_assert!(pair[0].score.0 >= pair[1].score.0);
+                prop_assert!(pair[0].score.value() >= pair[1].score.value());
             }
         }
 
@@ -320,7 +320,7 @@ mod tests {
             count in 1usize..30,
             k in 0usize..40,
         ) {
-            let mut index = FlatIndex::new(Metric::Cosine, Dimension(2));
+            let mut index = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
             for i in 0..count {
                 let angle = i as f32;
                 index.insert(VectorId::new(), embedding(&[angle.cos(), angle.sin()]))

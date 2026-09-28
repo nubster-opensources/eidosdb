@@ -38,7 +38,7 @@ async fn create(client: &mut EidosClient, name: &str, dim: usize) {
         .create_collection(CollectionSpec {
             name: name.to_string(),
             metric: Metric::Cosine,
-            dimension: Dimension(dim),
+            dimension: Dimension::new(dim).expect("valid dimension"),
             index_type: IndexTypeChoice::Hnsw,
             hnsw: None,
         })
@@ -54,7 +54,10 @@ async fn create_and_list_via_client() {
     let collections = client.list_collections().await.expect("list");
     assert_eq!(collections.len(), 1);
     assert_eq!(collections[0].name, "notes");
-    assert_eq!(collections[0].dimension, Dimension(3));
+    assert_eq!(
+        collections[0].dimension,
+        Dimension::new(3).expect("valid dimension")
+    );
 }
 
 #[tokio::test]

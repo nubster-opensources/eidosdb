@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 /// or an unorderable pair yields `false` rather than an error. Field absence is
 /// tested only through [`Filter::Exists`] (negate it for "is null").
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Filter {
     /// Field is a scalar structurally equal to the value.
     ///

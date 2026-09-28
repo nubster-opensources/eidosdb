@@ -55,7 +55,7 @@ impl<I: VectorIndex, L: LexicalIndex, P: PayloadStore> Collection<I, L, P> {
                 Some(
                     neighbors
                         .into_iter()
-                        .map(|n| (n.id, f64::from(n.score.0)))
+                        .map(|n| (n.id, f64::from(n.score.value())))
                         .collect(),
                 )
             }
@@ -85,7 +85,7 @@ impl<I: VectorIndex, L: LexicalIndex, P: PayloadStore> Collection<I, L, P> {
             #[allow(clippy::cast_possible_truncation)]
             hits.push(SearchHit {
                 id,
-                score: Score(score as f32),
+                score: Score::new(score as f32),
                 payload,
             });
         }
@@ -106,7 +106,7 @@ mod tests {
 
     fn collection() -> Collection<FlatIndex, InMemoryLexicalIndex, InMemoryPayloadStore> {
         Collection::new(
-            FlatIndex::new(Metric::Cosine, Dimension(2)),
+            FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap()),
             InMemoryLexicalIndex::new(),
             InMemoryPayloadStore::new(),
         )
@@ -147,11 +147,11 @@ mod tests {
         // Single channel must thread the native cosine score, not an RRF rank
         // score. The aligned vector scores 1.0; the opposite one scores below 0.
         assert!(
-            (hits[0].score.0 - 1.0).abs() < 1e-6,
+            (hits[0].score.value() - 1.0).abs() < 1e-6,
             "native cosine score is threaded through, not RRF"
         );
         assert!(
-            hits[1].score.0 < 0.0,
+            hits[1].score.value() < 0.0,
             "opposite vector keeps its negative cosine"
         );
     }

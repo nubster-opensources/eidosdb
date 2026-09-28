@@ -316,8 +316,8 @@ impl VectorIndex for PersistentFlatIndex {
         }
         scored.sort_by(|a, b| {
             b.score
-                .0
-                .total_cmp(&a.score.0)
+                .value()
+                .total_cmp(&a.score.value())
                 .then_with(|| a.id.cmp(&b.id))
         });
         scored.truncate(k);
@@ -339,25 +339,31 @@ mod tests {
     fn new_index_is_empty() {
         let dir = tempdir().expect("tempdir");
         let index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(3).unwrap())
+                .expect("open");
         assert!(index.is_empty());
         assert_eq!(index.len(), 0);
         assert_eq!(index.metric(), Metric::Cosine);
-        assert_eq!(index.dimension(), Dimension(3));
+        assert_eq!(index.dimension(), Dimension::new(3).unwrap());
     }
 
     #[test]
     fn reopen_rejects_dimension_change() {
         let dir = tempdir().expect("tempdir");
-        PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("create");
-        assert!(PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(4)).is_err());
+        PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(3).unwrap())
+            .expect("create");
+        assert!(
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(4).unwrap())
+                .is_err()
+        );
     }
 
     #[test]
     fn insert_increases_len() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         index
             .insert(VectorId::new(), embedding(&[1.0, 0.0]))
             .expect("insert");
@@ -368,7 +374,8 @@ mod tests {
     fn insert_rejects_dimension_mismatch() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(3).unwrap())
+                .expect("open");
         assert_eq!(
             index.insert(VectorId::new(), embedding(&[1.0, 0.0])),
             Err(IndexError::DimensionMismatch {
@@ -382,7 +389,8 @@ mod tests {
     fn insert_rejects_duplicate_id() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         let id = VectorId::new();
         index.insert(id, embedding(&[1.0, 0.0])).expect("first");
         assert_eq!(
@@ -395,7 +403,8 @@ mod tests {
     fn search_returns_closest_first() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         let near = VectorId::new();
         let far = VectorId::new();
         index.insert(near, embedding(&[1.0, 0.0])).expect("near");
@@ -410,7 +419,8 @@ mod tests {
     fn search_rejects_dimension_mismatch() {
         let dir = tempdir().expect("tempdir");
         let index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(3).unwrap())
+                .expect("open");
         assert_eq!(
             index.search(&embedding(&[1.0, 0.0]), 1),
             Err(IndexError::DimensionMismatch {
@@ -424,7 +434,8 @@ mod tests {
     fn remove_tombstones_and_excludes_from_search() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         let keep = VectorId::new();
         let drop = VectorId::new();
         index.insert(keep, embedding(&[1.0, 0.0])).expect("keep");
@@ -442,8 +453,9 @@ mod tests {
         use eidosdb_core::FlatIndex;
         let dir = tempdir().expect("tempdir");
         let mut persistent =
-            PersistentFlatIndex::open(dir.path(), Metric::Euclidean, Dimension(3)).expect("open");
-        let mut oracle = FlatIndex::new(Metric::Euclidean, Dimension(3));
+            PersistentFlatIndex::open(dir.path(), Metric::Euclidean, Dimension::new(3).unwrap())
+                .expect("open");
+        let mut oracle = FlatIndex::new(Metric::Euclidean, Dimension::new(3).unwrap());
         let vectors = [
             [0.1, 0.2, 0.3],
             [0.9, 0.8, 0.7],
@@ -468,7 +480,8 @@ mod tests {
     fn checkpoint_keeps_results_and_clears_tail() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         let a = VectorId::new();
         index.insert(a, embedding(&[1.0, 0.0])).expect("insert");
         index.checkpoint().expect("checkpoint");
@@ -496,11 +509,13 @@ mod tests {
             .collect();
 
         let mut batched =
-            PersistentFlatIndex::open(dir_a.path(), Metric::Cosine, Dimension(2)).expect("a");
+            PersistentFlatIndex::open(dir_a.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("a");
         batched.insert_batch(items.clone()).expect("batch");
 
         let mut single =
-            PersistentFlatIndex::open(dir_b.path(), Metric::Cosine, Dimension(2)).expect("b");
+            PersistentFlatIndex::open(dir_b.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("b");
         for (id, e) in items {
             single.insert(id, e).expect("single");
         }
@@ -517,7 +532,8 @@ mod tests {
     fn insert_batch_rejects_dimension_mismatch() {
         let dir = tempdir().expect("tempdir");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         let items = vec![(VectorId::new(), embedding(&[1.0, 2.0, 3.0]))];
         assert_eq!(
             index.insert_batch(items),
@@ -534,11 +550,13 @@ mod tests {
         let id = VectorId::new();
         {
             let mut index =
-                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                    .expect("open");
             index.insert(id, embedding(&[1.0, 0.0])).expect("insert");
         }
         let index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("reopen");
         assert_eq!(index.len(), 1);
         let results = index.search(&embedding(&[1.0, 0.0]), 1).expect("search");
         assert_eq!(results[0].id, id);
@@ -552,7 +570,8 @@ mod tests {
         let noise2 = VectorId::new();
 
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         index
             .insert(noise1, embedding(&[0.5, 0.5]))
             .expect("noise1");
@@ -584,7 +603,8 @@ mod tests {
         // Reopen: persisted state must be consistent.
         drop(index);
         let reopened =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("reopen");
         assert_eq!(reopened.len(), 1);
         let results2 = reopened
             .search(&embedding(&[1.0, 0.0]), 10)
@@ -598,7 +618,8 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let snap = tempdir().expect("snap");
         let mut index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
         let ids: Vec<VectorId> = (0..6).map(|_| VectorId::new()).collect();
         for (i, id) in ids.iter().enumerate() {
             let v = f32::from(u8::try_from(i).expect("small"));
@@ -607,8 +628,9 @@ mod tests {
         index.checkpoint().expect("checkpoint");
         index.snapshot(snap.path()).expect("snapshot");
 
-        let restored = PersistentFlatIndex::open(snap.path(), Metric::Cosine, Dimension(2))
-            .expect("reopen snap");
+        let restored =
+            PersistentFlatIndex::open(snap.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("reopen snap");
         let query = embedding(&[3.0, 1.0]);
         assert_eq!(restored.len(), index.len());
         assert_eq!(
@@ -625,7 +647,8 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         {
             let mut index =
-                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
+                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                    .expect("open");
             index
                 .insert(VectorId::new(), embedding(&[1.0, 0.0]))
                 .expect("insert");
@@ -639,7 +662,8 @@ mod tests {
             file.write_all(&[0xAB; 8]).expect("write orphan bytes");
         }
         let index =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("reopen");
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("reopen");
         assert_eq!(index.len(), 1, "watermark ignores orphan bytes");
         assert_eq!(
             index
@@ -655,8 +679,9 @@ mod tests {
         use eidosdb_core::FlatIndex;
         let dir = tempdir().expect("tempdir");
         let mut persistent =
-            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(2)).expect("open");
-        let mut oracle = FlatIndex::new(Metric::Cosine, Dimension(2));
+            PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(2).unwrap())
+                .expect("open");
+        let mut oracle = FlatIndex::new(Metric::Cosine, Dimension::new(2).unwrap());
         let mut kept = Vec::new();
         for i in 0..6 {
             let id = VectorId::new();
@@ -692,8 +717,8 @@ mod tests {
             use eidosdb_core::FlatIndex;
             let dir = tempdir().expect("tempdir");
             let mut persistent =
-                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension(3)).expect("open");
-            let mut oracle = FlatIndex::new(Metric::Cosine, Dimension(3));
+                PersistentFlatIndex::open(dir.path(), Metric::Cosine, Dimension::new(3).unwrap()).expect("open");
+            let mut oracle = FlatIndex::new(Metric::Cosine, Dimension::new(3).unwrap());
 
             let mut ids = Vec::new();
             for (i, v) in vectors.iter().enumerate() {

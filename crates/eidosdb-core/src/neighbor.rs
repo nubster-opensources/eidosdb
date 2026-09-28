@@ -21,9 +21,9 @@ mod tests {
         let id = VectorId::new();
         let neighbor = Neighbor {
             id,
-            score: Score(0.9),
+            score: Score::new(0.9),
         };
         assert_eq!(neighbor.id, id);
-        assert!((neighbor.score.0 - 0.9).abs() < 1e-6);
+        assert!((neighbor.score.value() - 0.9).abs() < 1e-6);
     }
 }

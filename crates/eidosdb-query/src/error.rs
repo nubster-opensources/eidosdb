@@ -5,6 +5,7 @@ use eidosdb_lexical::LexicalError;
 
 /// Failure modes of a `PayloadStore` operation.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PayloadError {
     /// A payload carried a non-finite float (NaN or infinity).
     #[error("payload contains a non-finite float value")]
@@ -19,6 +20,7 @@ pub enum PayloadError {
 
 /// Failure modes of a `Collection` query.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum QueryError {
     /// The requested metric is not supported by the index.
     #[error("metric not supported by this index: {0:?}")]

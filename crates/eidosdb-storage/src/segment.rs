@@ -40,12 +40,13 @@ impl Segment {
 
     /// Creates a new, empty segment file with a header.
     pub fn create(path: &Path, metric: Metric, dimension: usize) -> Result<Self, StorageError> {
+        let metric_byte = metric_to_u8(metric)?;
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .create_new(true)
             .open(path)?;
-        write_header(&mut file, metric, dimension)?;
+        write_header(&mut file, metric_byte, dimension)?;
         file.sync_all()?;
         let mut segment = Self {
             file,
@@ -145,14 +146,14 @@ impl Segment {
     }
 }
 
-fn write_header(file: &mut File, metric: Metric, dimension: usize) -> Result<(), StorageError> {
+fn write_header(file: &mut File, metric_byte: u8, dimension: usize) -> Result<(), StorageError> {
     let dimension = u32::try_from(dimension)
         .map_err(|_| StorageError::FormatMismatch("dimension exceeds u32".to_string()))?;
     let mut header = [0u8; HEADER_LEN];
     header[0..8].copy_from_slice(MAGIC);
     header[8..12].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
     header[12..16].copy_from_slice(&dimension.to_le_bytes());
-    header[16] = metric_to_u8(metric);
+    header[16] = metric_byte;
     file.seek(SeekFrom::Start(0))?;
     file.write_all(&header)?;
     file.flush()?;

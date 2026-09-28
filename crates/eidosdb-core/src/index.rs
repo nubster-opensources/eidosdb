@@ -6,6 +6,20 @@ use crate::{Dimension, Embedding, IndexError, Metric, Neighbor, VectorId};
 ///
 /// The port knows only geometry. Payloads, filtering, persistence and transport
 /// live in layers above and never leak into this contract.
+///
+/// # Stability contract
+///
+/// This trait is frozen as of 0.1: any method added afterward carries a
+/// default implementation, so an external implementation compiled against
+/// 0.1 keeps compiling against a later 0.x without changes. `search` above
+/// is the existing example of this shape.
+///
+/// The trait also stays object-safe: `search_filtered` takes a predicate as
+/// `&dyn Fn(&VectorId) -> bool` rather than a generic parameter, precisely so
+/// callers can hold a `&dyn VectorIndex`. The `_vector_index_is_object_safe`
+/// compile-time test below guards this; a method that broke object safety
+/// (for example, one taking `self` by value or introducing a generic
+/// parameter) would fail that test to compile.
 pub trait VectorIndex {
     /// The default metric this index scores with.
     fn metric(&self) -> Metric;
@@ -53,4 +67,14 @@ pub trait VectorIndex {
     fn search(&self, query: &Embedding, k: usize) -> Result<Vec<Neighbor>, IndexError> {
         self.search_filtered(query, k, self.metric(), &|_| true)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VectorIndex;
+
+    /// Compile-time guard: `VectorIndex` must stay object-safe (any method
+    /// added after 0.1 needs a default implementation) so callers can hold a
+    /// `&dyn VectorIndex`.
+    fn _vector_index_is_object_safe(_: &dyn VectorIndex) {}
 }

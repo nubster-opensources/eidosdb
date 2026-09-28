@@ -4,6 +4,7 @@ use eidosdb_core::IndexError;
 
 /// Failure modes of the persistent storage backend.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StorageError {
     /// An underlying I/O operation failed.
     #[error("io error: {0}")]

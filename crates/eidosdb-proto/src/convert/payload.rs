@@ -9,15 +9,20 @@ use eidosdb_query::{FieldValue, Payload, Value};
 use std::collections::BTreeMap;
 
 /// Converts a domain [`Value`] to its protobuf wire representation.
+///
+/// `Value` is `#[non_exhaustive]`: a variant added after this match was
+/// written has no wire encoding yet and is sent with no `kind`, the same
+/// shape `value_from_pb` already rejects as [`ConversionError::MissingField`].
 #[must_use]
 pub fn value_to_pb(value: &Value) -> pb::Value {
     let kind = match value {
-        Value::Text(s) => pb::value::Kind::Text(s.clone()),
-        Value::Integer(i) => pb::value::Kind::Integer(*i),
-        Value::Float(f) => pb::value::Kind::FloatValue(*f),
-        Value::Bool(b) => pb::value::Kind::BoolValue(*b),
+        Value::Text(s) => Some(pb::value::Kind::Text(s.clone())),
+        Value::Integer(i) => Some(pb::value::Kind::Integer(*i)),
+        Value::Float(f) => Some(pb::value::Kind::FloatValue(*f)),
+        Value::Bool(b) => Some(pb::value::Kind::BoolValue(*b)),
+        _ => None,
     };
-    pb::Value { kind: Some(kind) }
+    pb::Value { kind }
 }
 
 /// Converts a protobuf [`pb::Value`] to the domain [`Value`].
@@ -34,15 +39,21 @@ pub fn value_from_pb(value: pb::Value) -> Result<Value, ConversionError> {
 }
 
 /// Converts a domain [`FieldValue`] to its protobuf wire representation.
+///
+/// `FieldValue` is `#[non_exhaustive]`: a variant added after this match was
+/// written has no wire encoding yet and is sent with no `kind`, the same
+/// shape `field_value_from_pb` already rejects as
+/// [`ConversionError::MissingField`].
 #[must_use]
 pub fn field_value_to_pb(field_value: &FieldValue) -> pb::FieldValue {
     let kind = match field_value {
-        FieldValue::Scalar(v) => pb::field_value::Kind::Scalar(value_to_pb(v)),
-        FieldValue::Array(values) => pb::field_value::Kind::Array(pb::ValueArray {
+        FieldValue::Scalar(v) => Some(pb::field_value::Kind::Scalar(value_to_pb(v))),
+        FieldValue::Array(values) => Some(pb::field_value::Kind::Array(pb::ValueArray {
             values: values.iter().map(value_to_pb).collect(),
-        }),
+        })),
+        _ => None,
     };
-    pb::FieldValue { kind: Some(kind) }
+    pb::FieldValue { kind }
 }
 
 /// Converts a protobuf [`pb::FieldValue`] to the domain [`FieldValue`].

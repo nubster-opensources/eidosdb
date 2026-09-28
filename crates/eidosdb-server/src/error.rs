@@ -4,6 +4,7 @@ use std::fmt;
 
 /// Errors that can occur in the server layer.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ServerError {
     /// An I/O error occurred while reading or writing a file.
     Io(String),

@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 
 /// A single typed scalar held by a payload field.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Value {
     /// UTF-8 text.
     Text(String),
@@ -51,6 +52,7 @@ impl Value {
 
 /// A payload field: a single scalar, or an array of scalars (multi-value / tags).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum FieldValue {
     /// One scalar value.
     Scalar(Value),

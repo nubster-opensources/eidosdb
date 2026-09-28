@@ -16,6 +16,9 @@ use crate::error::ConversionError;
 /// - `DimensionMismatch | EmptyEmbedding`
 ///   `| NonFiniteComponent | UnsupportedMetric` -> `INVALID_ARGUMENT`
 /// - `Backend`                                  -> `INTERNAL`
+/// - any other variant, including one added after this match was written
+///   (`IndexError` is `#[non_exhaustive]`)       -> `INTERNAL`, the safest
+///   default for a failure mode this layer does not yet know how to classify.
 #[must_use]
 pub fn index_error_to_status(error: &IndexError) -> Status {
     match error {
@@ -24,7 +27,7 @@ pub fn index_error_to_status(error: &IndexError) -> Status {
         | IndexError::EmptyEmbedding
         | IndexError::NonFiniteComponent
         | IndexError::UnsupportedMetric(_) => Status::invalid_argument(error.to_string()),
-        IndexError::Backend(_) => Status::internal(error.to_string()),
+        _ => Status::internal(error.to_string()),
     }
 }
 
@@ -34,6 +37,8 @@ pub fn index_error_to_status(error: &IndexError) -> Status {
 /// - `EmptyQuery | UnsupportedMetric | Payload(NonFiniteValue)` -> `INVALID_ARGUMENT`
 /// - `Index(e)`                                                 -> delegates to `index_error_to_status`
 /// - `Payload(Serialization | Backend) | Lexical`               -> `INTERNAL`
+/// - any other variant, including one added after this match was written
+///   (`QueryError` and `PayloadError` are both `#[non_exhaustive]`) -> `INTERNAL`.
 #[must_use]
 pub fn query_error_to_status(error: &QueryError) -> Status {
     use eidosdb_query::PayloadError;
@@ -45,10 +50,7 @@ pub fn query_error_to_status(error: &QueryError) -> Status {
             Status::invalid_argument(error.to_string())
         }
         QueryError::Index(inner) => index_error_to_status(inner),
-        QueryError::Payload(PayloadError::Serialization(_) | PayloadError::Backend(_)) => {
-            Status::internal(error.to_string())
-        }
-        QueryError::Lexical(_) => Status::internal(error.to_string()),
+        _ => Status::internal(error.to_string()),
     }
 }
 
