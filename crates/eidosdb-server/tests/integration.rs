@@ -8,9 +8,9 @@ use std::sync::Arc;
 use eidosdb_core::VectorId;
 use eidosdb_proto::pb;
 use eidosdb_server::registry::Registry;
-use eidosdb_server::service::EidosDbService;
-use pb::eidos_db_client::EidosDbClient;
-use pb::eidos_db_server::EidosDbServer;
+use eidosdb_server::service::EidosDbHandler;
+use pb::eidos_db_service_client::EidosDbServiceClient;
+use pb::eidos_db_service_server::EidosDbServiceServer;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::{Channel, Server};
@@ -30,10 +30,14 @@ use tonic::transport::{Channel, Server};
 /// 4. Capture the real address **before** moving the listener.
 /// 5. Wrap the listener in a `TcpListenerStream` and spawn
 ///    `Server::serve_with_incoming`: avoids any fixed-port race.
-/// 6. Connect `EidosDbClient` and return `(client, tempdir)`.
+/// 6. Connect `EidosDbServiceClient` and return `(client, tempdir)`.
 ///
 /// Reused unchanged by B6 / B7 / B8 / C.
-async fn start_server() -> (EidosDbClient<Channel>, tempfile::TempDir) {
+async fn start_server_with_registry() -> (
+    EidosDbServiceClient<Channel>,
+    tempfile::TempDir,
+    Arc<Registry>,
+) {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = Arc::new(Registry::open(dir.path().to_path_buf()).expect("open registry"));
 
@@ -42,7 +46,7 @@ async fn start_server() -> (EidosDbClient<Channel>, tempfile::TempDir) {
         .expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local_addr");
 
-    let svc = EidosDbServer::new(EidosDbService::new(Arc::clone(&registry)));
+    let svc = EidosDbServiceServer::new(EidosDbHandler::new(Arc::clone(&registry)));
     let incoming = TcpListenerStream::new(listener);
 
     tokio::spawn(async move {
@@ -53,10 +57,15 @@ async fn start_server() -> (EidosDbClient<Channel>, tempfile::TempDir) {
             .expect("server error");
     });
 
-    let client = EidosDbClient::connect(format!("http://{addr}"))
+    let client = EidosDbServiceClient::connect(format!("http://{addr}"))
         .await
         .expect("connect");
 
+    (client, dir, registry)
+}
+
+async fn start_server() -> (EidosDbServiceClient<Channel>, tempfile::TempDir) {
+    let (client, dir, _registry) = start_server_with_registry().await;
     (client, dir)
 }
 
@@ -95,7 +104,9 @@ async fn create_list_describe_drop() {
         })
         .await
         .expect("describe")
-        .into_inner();
+        .into_inner()
+        .collection
+        .expect("collection info");
     assert_eq!(info.dimension, 3);
 
     // Drop.
@@ -123,12 +134,21 @@ async fn describe_unknown_is_not_found() {
     assert_eq!(err.code(), tonic::Code::NotFound);
 }
 
+#[tokio::test]
+async fn service_is_served_under_the_versioned_name() {
+    use tonic::server::NamedService;
+    assert_eq!(
+        <EidosDbServiceServer<EidosDbHandler> as NamedService>::NAME,
+        "eidosdb.v1.EidosDbService"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // B6 helpers
 // ---------------------------------------------------------------------------
 
 /// Creates a new HNSW collection with the given name and dimension.
-async fn create_hnsw(client: &mut EidosDbClient<Channel>, name: &str, dim: u32) {
+async fn create_hnsw(client: &mut EidosDbServiceClient<Channel>, name: &str, dim: u32) {
     client
         .create_collection(pb::CreateCollectionRequest {
             name: name.into(),
@@ -149,7 +169,7 @@ async fn create_hnsw(client: &mut EidosDbClient<Channel>, name: &str, dim: u32) 
 async fn upsert_then_search_via_describe_count() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
-    let id = VectorId::new().as_uuid().to_string();
+    let id = VectorId::new().as_uuid().as_bytes().to_vec();
     client
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
@@ -168,7 +188,9 @@ async fn upsert_then_search_via_describe_count() {
         })
         .await
         .expect("describe")
-        .into_inner();
+        .into_inner()
+        .collection
+        .expect("collection info");
     assert_eq!(info.count, 1);
 }
 
@@ -178,7 +200,7 @@ async fn batch_upsert_loads_all_points() {
     create_hnsw(&mut client, "batch-col", 3).await;
     let points: Vec<_> = (0..50_u32)
         .map(|i| pb::Point {
-            id: VectorId::new().as_uuid().to_string(),
+            id: VectorId::new().as_uuid().as_bytes().to_vec(),
             vector: vec![f32::from(u16::try_from(i).expect("fits u16")), 0.0, 0.0],
             document: None,
             payload: None,
@@ -186,8 +208,10 @@ async fn batch_upsert_loads_all_points() {
         .collect();
     let r = client
         .batch_upsert(pb::BatchUpsertRequest {
-            collection: "batch-col".into(),
-            points,
+            batch: Some(pb::PointBatch {
+                collection: "batch-col".into(),
+                points,
+            }),
         })
         .await
         .expect("batch_upsert")
@@ -199,7 +223,9 @@ async fn batch_upsert_loads_all_points() {
         })
         .await
         .expect("describe")
-        .into_inner();
+        .into_inner()
+        .collection
+        .expect("collection info");
     assert_eq!(info.count, 50);
 }
 
@@ -211,7 +237,7 @@ async fn upsert_wrong_dimension_is_invalid_argument() {
         .upsert(pb::UpsertRequest {
             collection: "dim-col".into(),
             point: Some(pb::Point {
-                id: VectorId::new().as_uuid().to_string(),
+                id: VectorId::new().as_uuid().as_bytes().to_vec(),
                 vector: vec![1.0, 2.0], // wrong: 2 components instead of 3
                 document: None,
                 payload: None,
@@ -229,7 +255,7 @@ async fn upsert_unknown_collection_is_not_found() {
         .upsert(pb::UpsertRequest {
             collection: "ghost".into(),
             point: Some(pb::Point {
-                id: VectorId::new().as_uuid().to_string(),
+                id: VectorId::new().as_uuid().as_bytes().to_vec(),
                 vector: vec![1.0, 0.0, 0.0],
                 document: None,
                 payload: None,
@@ -285,15 +311,64 @@ async fn create_hnsw_degree_one_is_invalid_argument() {
             dimension: 3,
             index_type: pb::IndexType::Hnsw as i32,
             hnsw_params: Some(pb::HnswParams {
-                m: 1,
-                ef_construction: 200,
-                ef_search: 64,
-                seed: 42,
+                m: Some(1),
+                ef_construction: Some(200),
+                ef_search: Some(64),
+                seed: Some(42),
             }),
         })
         .await
         .expect_err("m = 1 must be rejected");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+/// Builds a `CreateCollectionRequest` for an HNSW collection with explicit `hnsw_params`.
+fn hnsw_request(name: &str, params: pb::HnswParams) -> pb::CreateCollectionRequest {
+    pb::CreateCollectionRequest {
+        name: name.into(),
+        metric: pb::Metric::Cosine as i32,
+        dimension: 3,
+        index_type: pb::IndexType::Hnsw as i32,
+        hnsw_params: Some(params),
+    }
+}
+
+#[tokio::test]
+async fn create_with_explicit_zero_degree_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .create_collection(hnsw_request(
+            "zero-degree",
+            pb::HnswParams {
+                m: Some(0),
+                ef_construction: None,
+                ef_search: None,
+                seed: None,
+            },
+        ))
+        .await
+        .expect_err("m = 0 must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn create_with_seed_zero_persists_seed_zero() {
+    let (mut client, _dir, registry) = start_server_with_registry().await;
+    client
+        .create_collection(hnsw_request(
+            "seeded",
+            pb::HnswParams {
+                m: None,
+                ef_construction: None,
+                ef_search: None,
+                seed: Some(0),
+            },
+        ))
+        .await
+        .expect("create");
+    let handle = registry.get("seeded").expect("registered");
+    let persisted = eidosdb_server::meta::read_meta(&handle.dir).expect("meta on disk");
+    assert_eq!(persisted.hnsw.expect("hnsw config").seed(), 0);
 }
 
 #[tokio::test]
@@ -320,7 +395,7 @@ async fn create_zero_dimension_is_invalid_argument() {
 async fn delete_existing_returns_existed_true() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
-    let id = VectorId::new().as_uuid().to_string();
+    let id = VectorId::new().as_uuid().as_bytes().to_vec();
     client
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
@@ -348,7 +423,7 @@ async fn delete_existing_returns_existed_true() {
 async fn delete_absent_returns_existed_false() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
-    let id = VectorId::new().as_uuid().to_string();
+    let id = VectorId::new().as_uuid().as_bytes().to_vec();
     let r = client
         .delete(pb::DeleteRequest {
             collection: "notes".into(),
@@ -363,7 +438,7 @@ async fn delete_absent_returns_existed_false() {
 #[tokio::test]
 async fn delete_unknown_collection_is_not_found() {
     let (mut client, _dir) = start_server().await;
-    let id = VectorId::new().as_uuid().to_string();
+    let id = VectorId::new().as_uuid().as_bytes().to_vec();
     let err = client
         .delete(pb::DeleteRequest {
             collection: "ghost".into(),
@@ -375,10 +450,26 @@ async fn delete_unknown_collection_is_not_found() {
 }
 
 #[tokio::test]
+async fn delete_with_textual_id_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let textual = VectorId::new().as_uuid().to_string().into_bytes();
+    assert_eq!(textual.len(), 36);
+    let err = client
+        .delete(pb::DeleteRequest {
+            collection: "notes".into(),
+            id: textual,
+        })
+        .await
+        .expect_err("a 36-byte id must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
 async fn compact_after_delete_succeeds() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
-    let id = VectorId::new().as_uuid().to_string();
+    let id = VectorId::new().as_uuid().as_bytes().to_vec();
     client
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
@@ -410,7 +501,9 @@ async fn compact_after_delete_succeeds() {
         })
         .await
         .expect("describe")
-        .into_inner();
+        .into_inner()
+        .collection
+        .expect("collection info");
     assert_eq!(info.count, 0);
 }
 
@@ -460,7 +553,7 @@ fn text_eq_filter(field: &str, value: &str) -> pb::Filter {
 async fn search_returns_nearest_hit() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
-    let target = VectorId::new().as_uuid().to_string();
+    let target = VectorId::new().as_uuid().as_bytes().to_vec();
     client
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
@@ -477,7 +570,7 @@ async fn search_returns_nearest_hit() {
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
             point: Some(pb::Point {
-                id: VectorId::new().as_uuid().to_string(),
+                id: VectorId::new().as_uuid().as_bytes().to_vec(),
                 vector: vec![0.0, 1.0, 0.0],
                 document: None,
                 payload: None,
@@ -538,7 +631,7 @@ async fn search_with_filter_excludes_non_matching() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
 
-    let note_id = VectorId::new().as_uuid().to_string();
+    let note_id = VectorId::new().as_uuid().as_bytes().to_vec();
     client
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
@@ -555,7 +648,7 @@ async fn search_with_filter_excludes_non_matching() {
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
             point: Some(pb::Point {
-                id: VectorId::new().as_uuid().to_string(),
+                id: VectorId::new().as_uuid().as_bytes().to_vec(),
                 vector: vec![0.9, 0.1, 0.0],
                 document: None,
                 payload: Some(text_payload("kind", "task")),
@@ -620,9 +713,9 @@ async fn server_search_matches_direct_collection_kind() {
             filter: None,
         })
         .expect("direct search");
-    let direct_ids: Vec<String> = direct_hits
+    let direct_ids: Vec<Vec<u8>> = direct_hits
         .iter()
-        .map(|h| h.id.as_uuid().to_string())
+        .map(|h| h.id.as_uuid().as_bytes().to_vec())
         .collect();
 
     // 3. Server: same points via gRPC.
@@ -633,7 +726,7 @@ async fn server_search_matches_direct_collection_kind() {
             .upsert(pb::UpsertRequest {
                 collection: "notes".into(),
                 point: Some(pb::Point {
-                    id: id.as_uuid().to_string(),
+                    id: id.as_uuid().as_bytes().to_vec(),
                     vector: v.clone(),
                     document: None,
                     payload: None,
@@ -653,7 +746,7 @@ async fn server_search_matches_direct_collection_kind() {
         .await
         .expect("search")
         .into_inner();
-    let server_ids: Vec<String> = resp.hits.iter().map(|h| h.id.clone()).collect();
+    let server_ids: Vec<Vec<u8>> = resp.hits.iter().map(|h| h.id.clone()).collect();
 
     // 4. Parity: same ids in the same order.
     assert_eq!(server_ids, direct_ids);
@@ -664,7 +757,7 @@ async fn search_hybrid_combines_text_and_vector() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 2).await;
 
-    let target = VectorId::new().as_uuid().to_string();
+    let target = VectorId::new().as_uuid().as_bytes().to_vec();
     client
         .upsert(pb::UpsertRequest {
             collection: "notes".into(),
@@ -686,8 +779,8 @@ async fn search_hybrid_combines_text_and_vector() {
             k: 5,
             filter: None,
             metric: None,
-            rrf_k: 0.0,
-            overfetch_factor: 0,
+            rrf_k: Some(60.0),
+            overfetch_factor: Some(4),
         })
         .await
         .expect("search_hybrid")
@@ -710,8 +803,8 @@ async fn search_hybrid_wrong_vector_dimension_is_invalid_argument() {
             k: 1,
             filter: None,
             metric: None,
-            rrf_k: 0.0,
-            overfetch_factor: 0,
+            rrf_k: Some(60.0),
+            overfetch_factor: Some(4),
         })
         .await
         .expect_err("dim");
@@ -728,19 +821,21 @@ async fn bulk_upsert_streams_points_incrementally() {
     create_hnsw(&mut client, "notes", 3).await;
     let chunks: Vec<pb::BulkUpsertRequest> = (0..3u32)
         .map(|c| pb::BulkUpsertRequest {
-            collection: "notes".into(),
-            points: (0..10u32)
-                .map(|i| pb::Point {
-                    id: VectorId::new().as_uuid().to_string(),
-                    vector: vec![
-                        f32::from(u16::try_from(c * 10 + i).expect("fits u16")),
-                        0.0,
-                        0.0,
-                    ],
-                    document: None,
-                    payload: None,
-                })
-                .collect(),
+            batch: Some(pb::PointBatch {
+                collection: "notes".into(),
+                points: (0..10u32)
+                    .map(|i| pb::Point {
+                        id: VectorId::new().as_uuid().as_bytes().to_vec(),
+                        vector: vec![
+                            f32::from(u16::try_from(c * 10 + i).expect("fits u16")),
+                            0.0,
+                            0.0,
+                        ],
+                        document: None,
+                        payload: None,
+                    })
+                    .collect(),
+            }),
         })
         .collect();
     let resp = client
@@ -755,7 +850,9 @@ async fn bulk_upsert_streams_points_incrementally() {
         })
         .await
         .expect("describe")
-        .into_inner();
+        .into_inner()
+        .collection
+        .expect("collection info");
     assert_eq!(info.count, 30);
 }
 
@@ -775,13 +872,15 @@ async fn bulk_upsert_wrong_dimension_is_invalid_argument() {
     let (mut client, _dir) = start_server().await;
     create_hnsw(&mut client, "notes", 3).await;
     let chunk = pb::BulkUpsertRequest {
-        collection: "notes".into(),
-        points: vec![pb::Point {
-            id: VectorId::new().as_uuid().to_string(),
-            vector: vec![1.0, 2.0],
-            document: None,
-            payload: None,
-        }],
+        batch: Some(pb::PointBatch {
+            collection: "notes".into(),
+            points: vec![pb::Point {
+                id: VectorId::new().as_uuid().as_bytes().to_vec(),
+                vector: vec![1.0, 2.0],
+                document: None,
+                payload: None,
+            }],
+        }),
     };
     let err = client
         .bulk_upsert(tokio_stream::iter(vec![chunk]))
@@ -794,14 +893,41 @@ async fn bulk_upsert_wrong_dimension_is_invalid_argument() {
 async fn bulk_upsert_unknown_collection_is_not_found() {
     let (mut client, _dir) = start_server().await;
     let chunk = pb::BulkUpsertRequest {
-        collection: "ghost".into(),
-        points: vec![],
+        batch: Some(pb::PointBatch {
+            collection: "ghost".into(),
+            points: vec![],
+        }),
     };
     let err = client
         .bulk_upsert(tokio_stream::iter(vec![chunk]))
         .await
         .expect_err("nf");
     assert_eq!(err.code(), tonic::Code::NotFound);
+}
+
+#[tokio::test]
+async fn bulk_upsert_chunk_without_batch_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    create_hnsw(&mut client, "notes", 3).await;
+    let good = pb::BulkUpsertRequest {
+        batch: Some(pb::PointBatch {
+            collection: "notes".into(),
+            points: vec![pb::Point {
+                id: VectorId::new().as_uuid().as_bytes().to_vec(),
+                vector: vec![1.0, 0.0, 0.0],
+                document: None,
+                payload: None,
+            }],
+        }),
+    };
+    let empty = pb::BulkUpsertRequest { batch: None };
+    for stream in [vec![empty.clone()], vec![good, empty]] {
+        let err = client
+            .bulk_upsert(tokio_stream::iter(stream))
+            .await
+            .expect_err("a message without batch must be rejected");
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    }
 }
 
 #[tokio::test]
@@ -822,7 +948,7 @@ async fn concurrent_searches_and_upserts_do_not_panic() {
                 c.upsert(pb::UpsertRequest {
                     collection: "notes".into(),
                     point: Some(pb::Point {
-                        id: VectorId::new().as_uuid().to_string(),
+                        id: VectorId::new().as_uuid().as_bytes().to_vec(),
                         vector: vec![f32::from(u16::try_from(i).expect("fits u16")), 0.0, 0.0],
                         document: None,
                         payload: None,

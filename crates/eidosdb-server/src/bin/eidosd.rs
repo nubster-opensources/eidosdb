@@ -1,7 +1,7 @@
 //! `eidosd` is the `EidosDB` gRPC server daemon.
 //!
 //! It opens a persistent collection registry rooted at `--data-dir`, serves the
-//! `EidosDb` gRPC service on `--listen`, and stops on Ctrl-C.  The shutdown is a
+//! `eidosdb.v1.EidosDbService` gRPC service on `--listen`, and stops on Ctrl-C.  The shutdown is a
 //! simple stop: in-flight requests are not drained and no final flush is forced
 //! (graceful drain is tracked as follow-up issue B4-4).
 

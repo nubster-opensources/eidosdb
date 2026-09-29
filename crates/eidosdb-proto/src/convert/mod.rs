@@ -1,5 +1,8 @@
 //! Wire-to-domain and domain-to-wire conversion helpers.
 
+pub mod batch;
+pub use batch::*;
+
 pub mod delete;
 pub use delete::*;
 

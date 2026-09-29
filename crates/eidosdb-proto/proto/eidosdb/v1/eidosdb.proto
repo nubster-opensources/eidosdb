@@ -1,24 +1,27 @@
 syntax = "proto3";
+
 package eidosdb.v1;
 
 enum Metric {
   METRIC_UNSPECIFIED = 0;
-  COSINE = 1;
-  DOT_PRODUCT = 2;
-  EUCLIDEAN = 3;
+  METRIC_COSINE = 1;
+  METRIC_DOT_PRODUCT = 2;
+  METRIC_EUCLIDEAN = 3;
 }
 
 enum IndexType {
   INDEX_TYPE_UNSPECIFIED = 0;
-  FLAT = 1;
-  HNSW = 2;
+  INDEX_TYPE_FLAT = 1;
+  INDEX_TYPE_HNSW = 2;
 }
 
 message HnswParams {
-  uint32 m = 1;
-  uint32 ef_construction = 2;
-  uint32 ef_search = 3;
-  uint64 seed = 4;
+  // Absent fields take the server default. An explicit zero on m,
+  // ef_construction or ef_search is rejected; seed accepts every value.
+  optional uint32 m = 1;
+  optional uint32 ef_construction = 2;
+  optional uint32 ef_search = 3;
+  optional uint64 seed = 4;
 }
 
 message CreateCollectionRequest {
@@ -37,6 +40,7 @@ message ListCollectionsRequest {}
 message ListCollectionsResponse { repeated CollectionInfo collections = 1; }
 
 message DescribeCollectionRequest { string name = 1; }
+message DescribeCollectionResponse { CollectionInfo collection = 1; }
 
 message CollectionInfo {
   string name = 1;
@@ -64,10 +68,16 @@ message FieldValue {
 message Payload { map<string, FieldValue> fields = 1; }
 
 message Point {
-  string id = 1;
+  // Exactly 16 bytes: the UUID in network byte order.
+  bytes id = 1;
   repeated float vector = 2;
   optional string document = 3;
   optional Payload payload = 4;
+}
+
+message PointBatch {
+  string collection = 1;
+  repeated Point points = 2;
 }
 
 message Comparison { string field = 1; Value value = 2; }
@@ -82,12 +92,12 @@ message Filter {
     Comparison lte = 4;
     Comparison gt = 5;
     Comparison gte = 6;
-    InFilter in = 7;
+    InFilter is_in = 7;
     ContainsFilter contains = 8;
     string exists = 9;
-    FilterList and = 10;
-    FilterList or = 11;
-    Filter not = 12;
+    FilterList all_of = 10;
+    FilterList any_of = 11;
+    Filter negation = 12;
   }
 }
 
@@ -105,40 +115,51 @@ message SearchHybridRequest {
   uint32 k = 4;
   optional Filter filter = 5;
   optional Metric metric = 6;
-  double rrf_k = 7;
-  uint32 overfetch_factor = 8;
+  // Absent takes the server default. Must be finite and strictly positive.
+  optional double rrf_k = 7;
+  // Absent takes the server default. An explicit zero is rejected.
+  optional uint32 overfetch_factor = 8;
 }
 message Hit {
-  string id = 1;
+  // Exactly 16 bytes, same encoding as Point.id.
+  bytes id = 1;
+  // Higher is closer, whatever the metric: cosine similarity in [-1, 1],
+  // raw dot product, negated euclidean distance. For SearchHybrid, the
+  // reciprocal rank fusion score, also higher is closer.
   float score = 2;
   optional Payload payload = 3;
 }
 message SearchResponse { repeated Hit hits = 1; }
+message SearchHybridResponse { repeated Hit hits = 1; }
 
 message UpsertRequest { string collection = 1; Point point = 2; }
 message UpsertResponse {}
-message BatchUpsertRequest { string collection = 1; repeated Point points = 2; }
+message BatchUpsertRequest { PointBatch batch = 1; }
 message BatchUpsertResponse { uint64 upserted = 1; }
-message BulkUpsertRequest { string collection = 1; repeated Point points = 2; }
+message BulkUpsertRequest { PointBatch batch = 1; }
 message BulkUpsertResponse { uint64 upserted = 1; }
-message DeleteRequest { string collection = 1; string id = 2; }
+message DeleteRequest {
+  string collection = 1;
+  // Exactly 16 bytes, same encoding as Point.id.
+  bytes id = 2;
+}
 message DeleteResponse { bool existed = 1; }
 message DeleteByFilterRequest { string collection = 1; Filter filter = 2; }
 message DeleteByFilterResponse { uint64 deleted = 1; }
 message CompactRequest { string collection = 1; }
 message CompactResponse {}
 
-service EidosDb {
+service EidosDbService {
   rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
   rpc DropCollection(DropCollectionRequest) returns (DropCollectionResponse);
   rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
-  rpc DescribeCollection(DescribeCollectionRequest) returns (CollectionInfo);
+  rpc DescribeCollection(DescribeCollectionRequest) returns (DescribeCollectionResponse);
   rpc Upsert(UpsertRequest) returns (UpsertResponse);
   rpc BatchUpsert(BatchUpsertRequest) returns (BatchUpsertResponse);
   rpc BulkUpsert(stream BulkUpsertRequest) returns (BulkUpsertResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc DeleteByFilter(DeleteByFilterRequest) returns (DeleteByFilterResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
-  rpc SearchHybrid(SearchHybridRequest) returns (SearchResponse);
+  rpc SearchHybrid(SearchHybridRequest) returns (SearchHybridResponse);
   rpc Compact(CompactRequest) returns (CompactResponse);
 }

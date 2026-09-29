@@ -1,23 +1,21 @@
 //! gRPC service implementation for `EidosDB`.
 //!
-//! [`EidosDbService`] wraps an [`Arc<Registry>`] and implements the eleven
-//! RPCs declared by the `EidosDb` protobuf service: the four lifecycle RPCs,
-//! plus `Upsert`, `BatchUpsert`, `BulkUpsert`, `Delete`, `Compact`, `Search`,
-//! and `SearchHybrid`.
+//! [`EidosDbHandler`] wraps an [`Arc<Registry>`] and implements the RPCs
+//! declared by the `eidosdb.v1.EidosDbService` protobuf service.
 
 use std::{net::SocketAddr, sync::Arc};
 
 use eidosdb_core::Dimension;
-use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
     convert::{
-        IndexTypeChoice, delete_by_filter_from_pb, hits_to_pb, hybrid_query_from_pb,
+        DecodedPoint, IndexTypeChoice, batch_upsert_from_pb, bulk_upsert_from_pb,
+        delete_by_filter_from_pb, hits_to_pb, hybrid_hits_to_pb, hybrid_query_from_pb,
         index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb, point_from_pb,
         search_query_from_pb, vector_id_from_pb,
     },
     pb::{
         self,
-        eidos_db_server::{EidosDb, EidosDbServer},
+        eidos_db_service_server::{EidosDbService, EidosDbServiceServer},
     },
     status::{conversion_error_to_status, not_found, query_error_to_status},
 };
@@ -26,6 +24,7 @@ use tonic::{Request, Response, Status};
 use crate::{
     collection_kind::CollectionKind,
     error::ServerError,
+    hnsw_params::hnsw_config_from_pb,
     meta::CollectionMeta,
     registry::{CollectionHandle, Registry},
 };
@@ -51,16 +50,16 @@ pub(crate) fn server_error_to_status(error: &ServerError) -> Status {
 }
 
 // ---------------------------------------------------------------------------
-// EidosDbService
+// EidosDbHandler
 // ---------------------------------------------------------------------------
 
 /// gRPC service handler backed by a shared [`Registry`].
-pub struct EidosDbService {
+pub struct EidosDbHandler {
     registry: Arc<Registry>,
 }
 
-impl EidosDbService {
-    /// Creates a new [`EidosDbService`] wrapping the given registry.
+impl EidosDbHandler {
+    /// Creates a new [`EidosDbHandler`] wrapping the given registry.
     pub fn new(registry: Arc<Registry>) -> Self {
         Self { registry }
     }
@@ -92,6 +91,20 @@ where
     .map_err(|_| Status::internal("blocking task failed"))?
 }
 
+/// Rejects the first decoded point whose dimension differs from `expected`.
+fn ensure_dimension(points: &[DecodedPoint], expected: usize) -> Result<(), Status> {
+    match points
+        .iter()
+        .map(|point| point.embedding.dimension().get())
+        .find(|&got| got != expected)
+    {
+        Some(got) => Err(Status::invalid_argument(format!(
+            "vector dimension mismatch: expected {expected}, got {got}"
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Runs a closure that reads from a [`CollectionKind`] on a `spawn_blocking` thread.
 ///
 /// Mirrors [`run_blocking`] but acquires a **shared read-guard**, so multiple
@@ -115,11 +128,11 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// EidosDb trait impl
+// EidosDbService trait impl
 // ---------------------------------------------------------------------------
 
 #[tonic::async_trait]
-impl EidosDb for EidosDbService {
+impl EidosDbService for EidosDbHandler {
     // -----------------------------------------------------------------------
     // Collection lifecycle (4 real RPCs)
     // -----------------------------------------------------------------------
@@ -151,34 +164,10 @@ impl EidosDb for EidosDbService {
         let index_type =
             index_type_from_pb(pb_index_type).map_err(|e| conversion_error_to_status(&e))?;
 
-        // Build HnswConfig only when index type is HNSW; merge defaults for zero
-        // fields (proto convention: 0 means "use the default"), then validate
-        // through the constructor so an invalid value (e.g. m = 1) is rejected
-        // here rather than crashing the index on first insert.
+        // Absent HNSW parameters take their defaults; explicit zeros are
+        // rejected, and HnswConfig::new validates the rest (e.g. m = 1).
         let hnsw = if matches!(index_type, IndexTypeChoice::Hnsw) {
-            let p = req.hnsw_params.unwrap_or_default();
-            let def = HnswConfig::default();
-            let m = if p.m == 0 {
-                def.m()
-            } else {
-                usize::try_from(p.m).map_err(|_| Status::invalid_argument("m out of range"))?
-            };
-            let ef_construction = if p.ef_construction == 0 {
-                def.ef_construction()
-            } else {
-                usize::try_from(p.ef_construction)
-                    .map_err(|_| Status::invalid_argument("ef_construction out of range"))?
-            };
-            let ef_search = if p.ef_search == 0 {
-                def.ef_search()
-            } else {
-                usize::try_from(p.ef_search)
-                    .map_err(|_| Status::invalid_argument("ef_search out of range"))?
-            };
-            let seed = if p.seed == 0 { def.seed() } else { p.seed };
-            let config = HnswConfig::new(metric, m, ef_construction, ef_search, seed)
-                .map_err(|error| Status::invalid_argument(error.to_string()))?;
-            Some(config)
+            Some(hnsw_config_from_pb(metric, req.hnsw_params)?)
         } else {
             None
         };
@@ -247,7 +236,7 @@ impl EidosDb for EidosDbService {
     async fn describe_collection(
         &self,
         request: Request<pb::DescribeCollectionRequest>,
-    ) -> Result<Response<pb::CollectionInfo>, Status> {
+    ) -> Result<Response<pb::DescribeCollectionResponse>, Status> {
         let name = request.into_inner().name;
 
         let handle = self.registry.get(&name).ok_or_else(|| not_found(&name))?;
@@ -255,12 +244,14 @@ impl EidosDb for EidosDbService {
         let meta = handle.meta.clone();
         let count = handle.inner.read().map(|g| g.len() as u64).unwrap_or(0);
 
-        Ok(Response::new(pb::CollectionInfo {
-            name: meta.name,
-            metric: metric_to_pb(meta.metric) as i32,
-            dimension: u32::try_from(meta.dimension.get()).unwrap_or(0),
-            index_type: index_type_to_pb(meta.index_type) as i32,
-            count,
+        Ok(Response::new(pb::DescribeCollectionResponse {
+            collection: Some(pb::CollectionInfo {
+                name: meta.name,
+                metric: metric_to_pb(meta.metric) as i32,
+                dimension: u32::try_from(meta.dimension.get()).unwrap_or(0),
+                index_type: index_type_to_pb(meta.index_type) as i32,
+                count,
+            }),
         }))
     }
 
@@ -322,30 +313,13 @@ impl EidosDb for EidosDbService {
         &self,
         request: Request<pb::BatchUpsertRequest>,
     ) -> Result<Response<pb::BatchUpsertResponse>, Status> {
-        let req = request.into_inner();
-
+        let (collection, decoded_points) = batch_upsert_from_pb(request.into_inner())
+            .map_err(|e| conversion_error_to_status(&e))?;
         let handle = self
             .registry
-            .get(&req.collection)
-            .ok_or_else(|| not_found(&req.collection))?;
-
-        let expected_dim = handle.meta.dimension.get();
-
-        // Decode and validate all points before entering the blocking section.
-        let decoded_points = req
-            .points
-            .into_iter()
-            .map(|point| {
-                if point.vector.len() != expected_dim {
-                    return Err(Status::invalid_argument(format!(
-                        "vector dimension mismatch: expected {expected_dim}, got {}",
-                        point.vector.len(),
-                    )));
-                }
-                point_from_pb(point).map_err(|e| conversion_error_to_status(&e))
-            })
-            .collect::<Result<Vec<_>, Status>>()?;
-
+            .get(&collection)
+            .ok_or_else(|| not_found(&collection))?;
+        ensure_dimension(&decoded_points, handle.meta.dimension.get())?;
         let count = decoded_points.len();
 
         run_blocking(handle, move |kind| {
@@ -373,14 +347,14 @@ impl EidosDb for EidosDbService {
     ) -> Result<Response<pb::BulkUpsertResponse>, Status> {
         let mut stream = request.into_inner();
 
-        // The collection is determined by the first message; an empty stream is
-        // a client error.
+        // The collection is determined by the first message; an empty stream, or
+        // a first message without a batch, is a client error.
         let first = stream
             .message()
             .await?
             .ok_or_else(|| Status::invalid_argument("bulk_upsert stream carried no messages"))?;
-
-        let collection = first.collection.clone();
+        let (collection, first_points) =
+            bulk_upsert_from_pb(first).map_err(|e| conversion_error_to_status(&e))?;
         let handle = self
             .registry
             .get(&collection)
@@ -388,31 +362,10 @@ impl EidosDb for EidosDbService {
         let expected_dim = handle.meta.dimension.get();
 
         let mut upserted: u64 = 0;
-        let mut message = Some(first);
+        let mut pending = Some(first_points);
 
-        while let Some(req) = message {
-            // A later chunk naming a different collection would misroute points.
-            if !req.collection.is_empty() && req.collection != collection {
-                return Err(Status::invalid_argument(
-                    "bulk_upsert stream changed collection mid-stream",
-                ));
-            }
-
-            // Decode and validate this chunk before entering the blocking section.
-            let decoded = req
-                .points
-                .into_iter()
-                .map(|point| {
-                    if point.vector.len() != expected_dim {
-                        return Err(Status::invalid_argument(format!(
-                            "vector dimension mismatch: expected {expected_dim}, got {}",
-                            point.vector.len(),
-                        )));
-                    }
-                    point_from_pb(point).map_err(|e| conversion_error_to_status(&e))
-                })
-                .collect::<Result<Vec<_>, Status>>()?;
-
+        while let Some(decoded) = pending {
+            ensure_dimension(&decoded, expected_dim)?;
             let chunk_len = decoded.len();
             run_blocking(Arc::clone(&handle), move |kind| {
                 for d in decoded {
@@ -424,7 +377,20 @@ impl EidosDb for EidosDbService {
             .await?;
             upserted += u64::try_from(chunk_len).unwrap_or(u64::MAX);
 
-            message = stream.message().await?;
+            pending = match stream.message().await? {
+                Some(next) => {
+                    let (chunk_collection, points) =
+                        bulk_upsert_from_pb(next).map_err(|e| conversion_error_to_status(&e))?;
+                    // A later chunk naming a different collection would misroute points.
+                    if !chunk_collection.is_empty() && chunk_collection != collection {
+                        return Err(Status::invalid_argument(
+                            "bulk_upsert stream changed collection mid-stream",
+                        ));
+                    }
+                    Some(points)
+                }
+                None => None,
+            };
         }
 
         Ok(Response::new(pb::BulkUpsertResponse { upserted }))
@@ -508,7 +474,7 @@ impl EidosDb for EidosDbService {
     async fn search_hybrid(
         &self,
         request: Request<pb::SearchHybridRequest>,
-    ) -> Result<Response<pb::SearchResponse>, Status> {
+    ) -> Result<Response<pb::SearchHybridResponse>, Status> {
         let (name, query) = hybrid_query_from_pb(request.into_inner())
             .map_err(|e| conversion_error_to_status(&e))?;
 
@@ -530,7 +496,7 @@ impl EidosDb for EidosDbService {
         })
         .await?;
 
-        Ok(Response::new(hits_to_pb(&hits)))
+        Ok(Response::new(hybrid_hits_to_pb(&hits)))
     }
 
     async fn compact(
@@ -566,7 +532,7 @@ impl EidosDb for EidosDbService {
 ///
 /// Returns [`ServerError`] if the transport layer fails to bind or serve.
 pub async fn serve(registry: Arc<Registry>, addr: SocketAddr) -> Result<(), ServerError> {
-    let svc = EidosDbServer::new(EidosDbService::new(registry));
+    let svc = EidosDbServiceServer::new(EidosDbHandler::new(registry));
     tonic::transport::Server::builder()
         .add_service(svc)
         .serve(addr)

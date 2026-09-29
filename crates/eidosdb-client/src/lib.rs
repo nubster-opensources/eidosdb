@@ -12,9 +12,9 @@ use eidosdb_core::{Dimension, Embedding, Metric, VectorId};
 use eidosdb_hnsw::HnswConfig;
 use eidosdb_lexical::Document;
 use eidosdb_proto::convert::{
-    IndexTypeChoice, delete_by_filter_to_pb, hits_from_pb, hybrid_query_to_pb, index_type_from_pb,
-    index_type_to_pb, metric_from_pb, metric_to_pb, point_to_pb, search_query_to_pb,
-    vector_id_to_pb,
+    IndexTypeChoice, delete_by_filter_to_pb, hits_from_pb, hybrid_hits_from_pb, hybrid_query_to_pb,
+    index_type_from_pb, index_type_to_pb, metric_from_pb, metric_to_pb, point_batch_to_pb,
+    point_to_pb, search_query_to_pb, vector_id_to_pb,
 };
 use eidosdb_proto::error::ConversionError;
 use eidosdb_proto::pb;
@@ -137,7 +137,7 @@ fn collection_info_to_view(info: pb::CollectionInfo) -> Result<CollectionMetaVie
 /// A typed async gRPC client for an `EidosDB` server.
 #[derive(Clone)]
 pub struct EidosClient {
-    inner: pb::eidos_db_client::EidosDbClient<Channel>,
+    inner: pb::eidos_db_service_client::EidosDbServiceClient<Channel>,
 }
 
 impl EidosClient {
@@ -148,7 +148,8 @@ impl EidosClient {
     ///
     /// Returns [`ClientError::Transport`] if the connection cannot be established.
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self, ClientError> {
-        let inner = pb::eidos_db_client::EidosDbClient::connect(endpoint.into()).await?;
+        let inner =
+            pb::eidos_db_service_client::EidosDbServiceClient::connect(endpoint.into()).await?;
         Ok(Self { inner })
     }
 
@@ -162,10 +163,10 @@ impl EidosClient {
         let dimension = narrow_u32(spec.dimension.get(), "dimension")?;
         let hnsw_params = match spec.hnsw {
             Some(config) => Some(pb::HnswParams {
-                m: narrow_u32(config.m(), "m")?,
-                ef_construction: narrow_u32(config.ef_construction(), "ef_construction")?,
-                ef_search: narrow_u32(config.ef_search(), "ef_search")?,
-                seed: config.seed(),
+                m: Some(narrow_u32(config.m(), "m")?),
+                ef_construction: Some(narrow_u32(config.ef_construction(), "ef_construction")?),
+                ef_search: Some(narrow_u32(config.ef_search(), "ef_search")?),
+                seed: Some(config.seed()),
             }),
             None => None,
         };
@@ -230,7 +231,13 @@ impl EidosClient {
                 name: name.to_string(),
             })
             .await?;
-        collection_info_to_view(response.into_inner())
+        let info = response
+            .into_inner()
+            .collection
+            .ok_or(ConversionError::MissingField(
+                "describe_collection.collection",
+            ))?;
+        collection_info_to_view(info)
     }
 
     /// Inserts or updates a single point.
@@ -274,8 +281,7 @@ impl EidosClient {
         let response = self
             .inner
             .batch_upsert(pb::BatchUpsertRequest {
-                collection: collection.to_string(),
-                points: pb_points,
+                batch: Some(point_batch_to_pb(collection, pb_points)),
             })
             .await?;
         Ok(response.into_inner().upserted)
@@ -357,7 +363,7 @@ impl EidosClient {
     ) -> Result<Vec<SearchHit>, ClientError> {
         let request = hybrid_query_to_pb(collection, &query)?;
         let response = self.inner.search_hybrid(request).await?;
-        hits_from_pb(response.into_inner()).map_err(ClientError::Conversion)
+        hybrid_hits_from_pb(response.into_inner()).map_err(ClientError::Conversion)
     }
 
     /// Inserts or updates points as a client-streamed sequence of chunks,
@@ -377,14 +383,16 @@ impl EidosClient {
     ) -> Result<u64, ClientError> {
         let requests: Vec<pb::BulkUpsertRequest> = chunks
             .into_iter()
-            .map(|chunk| pb::BulkUpsertRequest {
-                collection: collection.to_string(),
-                points: chunk
+            .map(|chunk| {
+                let points = chunk
                     .into_iter()
                     .map(|p| {
                         point_to_pb(p.id, &p.embedding, p.document.as_ref(), p.payload.as_ref())
                     })
-                    .collect(),
+                    .collect();
+                pb::BulkUpsertRequest {
+                    batch: Some(point_batch_to_pb(collection, points)),
+                }
             })
             .collect();
         let response = self.inner.bulk_upsert(tokio_stream::iter(requests)).await?;

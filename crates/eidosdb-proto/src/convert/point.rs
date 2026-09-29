@@ -23,19 +23,27 @@ pub struct DecodedPoint {
     pub payload: Option<Payload>,
 }
 
-/// Converts a [`VectorId`] to its protobuf wire representation (hyphenated UUID string).
+/// Length in bytes of a vector identifier on the wire.
+const ID_LENGTH: usize = 16;
+
+/// Converts a [`VectorId`] to its protobuf wire representation (16 bytes, network order).
 #[must_use]
-pub fn vector_id_to_pb(id: VectorId) -> String {
-    id.as_uuid().to_string()
+pub fn vector_id_to_pb(id: VectorId) -> Vec<u8> {
+    id.as_uuid().as_bytes().to_vec()
 }
 
-/// Parses a UUID string from the wire and wraps it as a [`VectorId`].
+/// Decodes a 16-byte wire identifier into a [`VectorId`].
 ///
-/// Returns [`ConversionError::InvalidUuid`] when the string is not a valid UUID.
-pub fn vector_id_from_pb(id: &str) -> Result<VectorId, ConversionError> {
-    Uuid::parse_str(id)
+/// # Errors
+///
+/// Returns [`ConversionError::Domain`] when `id` is not exactly 16 bytes long.
+pub fn vector_id_from_pb(id: &[u8]) -> Result<VectorId, ConversionError> {
+    if id.len() != ID_LENGTH {
+        return Err(ConversionError::Domain("id must be 16 bytes".into()));
+    }
+    Uuid::from_slice(id)
         .map(VectorId::from_uuid)
-        .map_err(|_| ConversionError::InvalidUuid(id.to_string()))
+        .map_err(|_| ConversionError::Domain("id must be 16 bytes".into()))
 }
 
 /// Copies an [`Embedding`]'s components into a `Vec<f32>` for wire transmission.
@@ -54,9 +62,9 @@ pub fn embedding_from_pb(vector: Vec<f32>) -> Result<Embedding, ConversionError>
 
 /// Decodes a [`pb::Point`] into a validated [`DecodedPoint`].
 ///
-/// Returns [`ConversionError::InvalidUuid`] when the `id` field is not a valid UUID,
-/// [`ConversionError::Domain`] when the embedding or document is rejected by the domain,
-/// or [`ConversionError::MissingField`] when a payload field value has no `kind`.
+/// Returns [`ConversionError::Domain`] when the `id` field is not exactly 16 bytes,
+/// or when the embedding or document is rejected by the domain, or
+/// [`ConversionError::MissingField`] when a payload field value has no `kind`.
 pub fn point_from_pb(point: pb::Point) -> Result<DecodedPoint, ConversionError> {
     let id = vector_id_from_pb(&point.id)?;
     let embedding = embedding_from_pb(point.vector)?;
@@ -97,17 +105,37 @@ mod tests {
     use eidosdb_lexical::Document;
 
     #[test]
-    fn vector_id_round_trips() {
+    fn vector_id_round_trips_as_sixteen_bytes() {
         let id = VectorId::new();
-        assert_eq!(vector_id_from_pb(&vector_id_to_pb(id)).expect("uuid"), id);
+        let wire = vector_id_to_pb(id);
+        assert_eq!(wire.len(), 16);
+        assert_eq!(wire.as_slice(), id.as_uuid().as_bytes());
+        assert_eq!(vector_id_from_pb(&wire).expect("16 bytes"), id);
     }
 
     #[test]
-    fn bad_uuid_is_rejected() {
+    fn id_of_wrong_length_is_rejected() {
+        for length in [15_usize, 17, 36] {
+            let wire = vec![7_u8; length];
+            assert!(
+                matches!(vector_id_from_pb(&wire), Err(ConversionError::Domain(_))),
+                "length {length} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_id_is_rejected() {
         assert!(matches!(
-            vector_id_from_pb("not-a-uuid"),
-            Err(ConversionError::InvalidUuid(_))
+            vector_id_from_pb(&[]),
+            Err(ConversionError::Domain(_))
         ));
+    }
+
+    #[test]
+    fn textual_uuid_bytes_are_rejected() {
+        let text = VectorId::new().as_uuid().to_string();
+        assert!(vector_id_from_pb(text.as_bytes()).is_err());
     }
 
     #[test]
