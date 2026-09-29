@@ -6,7 +6,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use eidosdb_core::Dimension;
-use eidosdb_hnsw::HnswConfig;
 use eidosdb_proto::{
     convert::{
         DecodedPoint, IndexTypeChoice, batch_upsert_from_pb, bulk_upsert_from_pb,
@@ -25,6 +24,7 @@ use tonic::{Request, Response, Status};
 use crate::{
     collection_kind::CollectionKind,
     error::ServerError,
+    hnsw_params::hnsw_config_from_pb,
     meta::CollectionMeta,
     registry::{CollectionHandle, Registry},
 };
@@ -164,34 +164,10 @@ impl EidosDbService for EidosDbHandler {
         let index_type =
             index_type_from_pb(pb_index_type).map_err(|e| conversion_error_to_status(&e))?;
 
-        // Build HnswConfig only when index type is HNSW; merge defaults for zero
-        // fields (proto convention: 0 means "use the default"), then validate
-        // through the constructor so an invalid value (e.g. m = 1) is rejected
-        // here rather than crashing the index on first insert.
+        // Absent HNSW parameters take their defaults; explicit zeros are
+        // rejected, and HnswConfig::new validates the rest (e.g. m = 1).
         let hnsw = if matches!(index_type, IndexTypeChoice::Hnsw) {
-            let p = req.hnsw_params.unwrap_or_default();
-            let def = HnswConfig::default();
-            let m = if p.m == 0 {
-                def.m()
-            } else {
-                usize::try_from(p.m).map_err(|_| Status::invalid_argument("m out of range"))?
-            };
-            let ef_construction = if p.ef_construction == 0 {
-                def.ef_construction()
-            } else {
-                usize::try_from(p.ef_construction)
-                    .map_err(|_| Status::invalid_argument("ef_construction out of range"))?
-            };
-            let ef_search = if p.ef_search == 0 {
-                def.ef_search()
-            } else {
-                usize::try_from(p.ef_search)
-                    .map_err(|_| Status::invalid_argument("ef_search out of range"))?
-            };
-            let seed = if p.seed == 0 { def.seed() } else { p.seed };
-            let config = HnswConfig::new(metric, m, ef_construction, ef_search, seed)
-                .map_err(|error| Status::invalid_argument(error.to_string()))?;
-            Some(config)
+            Some(hnsw_config_from_pb(metric, req.hnsw_params)?)
         } else {
             None
         };

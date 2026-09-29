@@ -61,8 +61,8 @@ pub fn search_query_from_pb(
 /// Decodes a [`pb::SearchHybridRequest`] into a collection name and a domain [`HybridQuery`].
 ///
 /// An empty `vector` becomes `None`; an absent or empty `text` becomes `None`.
-/// When `rrf_k <= 0.0` the default [`DEFAULT_RRF_K`] is used.
-/// When `overfetch_factor == 0` the default [`DEFAULT_OVERFETCH_FACTOR`] is used.
+/// An absent `rrf_k` or `overfetch_factor` takes its default; an explicit zero,
+/// and a non-finite `rrf_k`, are rejected.
 pub fn hybrid_query_from_pb(
     request: pb::SearchHybridRequest,
 ) -> Result<(String, HybridQuery), ConversionError> {
@@ -79,17 +79,8 @@ pub fn hybrid_query_from_pb(
         usize::try_from(request.k).map_err(|_| ConversionError::Domain("k out of range".into()))?;
     let filter = request.filter.map(filter_from_pb).transpose()?;
     let metric = optional_metric_from_pb(request.metric)?;
-    let rrf_k = if request.rrf_k <= 0.0 {
-        DEFAULT_RRF_K
-    } else {
-        request.rrf_k
-    };
-    let overfetch_factor = if request.overfetch_factor == 0 {
-        DEFAULT_OVERFETCH_FACTOR
-    } else {
-        usize::try_from(request.overfetch_factor)
-            .map_err(|_| ConversionError::Domain("overfetch_factor out of range".into()))?
-    };
+    let rrf_k = rrf_k_from_pb(request.rrf_k)?;
+    let overfetch_factor = overfetch_factor_from_pb(request.overfetch_factor)?;
     Ok((
         request.collection,
         HybridQuery {
@@ -102,6 +93,33 @@ pub fn hybrid_query_from_pb(
             overfetch_factor,
         },
     ))
+}
+
+/// Resolves the wire `rrf_k`: absent takes [`DEFAULT_RRF_K`].
+///
+/// Returns [`ConversionError::Domain`] when the value is not finite or not strictly positive.
+fn rrf_k_from_pb(value: Option<f64>) -> Result<f64, ConversionError> {
+    match value {
+        None => Ok(DEFAULT_RRF_K),
+        Some(rrf_k) if rrf_k.is_finite() && rrf_k > 0.0 => Ok(rrf_k),
+        Some(_) => Err(ConversionError::Domain(
+            "rrf_k must be finite and strictly positive".into(),
+        )),
+    }
+}
+
+/// Resolves the wire `overfetch_factor`: absent takes [`DEFAULT_OVERFETCH_FACTOR`].
+///
+/// Returns [`ConversionError::Domain`] when the value is zero or does not fit `usize`.
+fn overfetch_factor_from_pb(value: Option<u32>) -> Result<usize, ConversionError> {
+    match value {
+        None => Ok(DEFAULT_OVERFETCH_FACTOR),
+        Some(0) => Err(ConversionError::Domain(
+            "overfetch_factor must be positive when present".into(),
+        )),
+        Some(raw) => usize::try_from(raw)
+            .map_err(|_| ConversionError::Domain("overfetch_factor out of range".into())),
+    }
 }
 
 /// Encodes a domain [`SearchHit`] into a [`pb::Hit`] for wire transmission.
@@ -181,9 +199,11 @@ pub fn hybrid_query_to_pb(
         k: u32::try_from(query.k).map_err(|_| ConversionError::Domain("k out of range".into()))?,
         filter: query.filter.as_ref().map(filter_to_pb),
         metric: query.metric.map(|m| metric_to_pb(m) as i32),
-        rrf_k: query.rrf_k,
-        overfetch_factor: u32::try_from(query.overfetch_factor)
-            .map_err(|_| ConversionError::Domain("overfetch_factor out of range".into()))?,
+        rrf_k: Some(query.rrf_k),
+        overfetch_factor: Some(
+            u32::try_from(query.overfetch_factor)
+                .map_err(|_| ConversionError::Domain("overfetch_factor out of range".into()))?,
+        ),
     })
 }
 
@@ -285,23 +305,6 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_defaults_when_zero() {
-        let req = pb::SearchHybridRequest {
-            collection: "n".into(),
-            vector: vec![1.0],
-            text: Some("x".into()),
-            k: 3,
-            filter: None,
-            metric: None,
-            rrf_k: 0.0,
-            overfetch_factor: 0,
-        };
-        let (_, q) = hybrid_query_from_pb(req).expect("valid");
-        assert!(q.rrf_k.to_bits() == DEFAULT_RRF_K.to_bits());
-        assert_eq!(q.overfetch_factor, DEFAULT_OVERFETCH_FACTOR);
-    }
-
-    #[test]
     fn hybrid_empty_vector_and_text_become_none() {
         let req = pb::SearchHybridRequest {
             collection: "n".into(),
@@ -310,8 +313,8 @@ mod tests {
             k: 3,
             filter: None,
             metric: None,
-            rrf_k: 60.0,
-            overfetch_factor: 4,
+            rrf_k: Some(60.0),
+            overfetch_factor: Some(4),
         };
         let (_, q) = hybrid_query_from_pb(req).expect("valid");
         assert!(q.vector.is_none());
@@ -327,8 +330,8 @@ mod tests {
             k: 3,
             filter: None,
             metric: None,
-            rrf_k: 60.0,
-            overfetch_factor: 4,
+            rrf_k: Some(60.0),
+            overfetch_factor: Some(4),
         };
         let (_, q) = hybrid_query_from_pb(req).expect("valid");
         assert!(q.text.is_none());
@@ -453,5 +456,79 @@ mod tests {
         let req = hybrid_query_to_pb("notes", &query).expect("to pb");
         assert!(req.vector.is_empty());
         assert_eq!(req.text, Some("hello".to_string()));
+    }
+
+    fn hybrid_request(
+        rrf_k: Option<f64>,
+        overfetch_factor: Option<u32>,
+    ) -> pb::SearchHybridRequest {
+        pb::SearchHybridRequest {
+            collection: "n".into(),
+            vector: vec![1.0],
+            text: Some("x".into()),
+            k: 3,
+            filter: None,
+            metric: None,
+            rrf_k,
+            overfetch_factor,
+        }
+    }
+
+    #[test]
+    fn hybrid_absent_fields_take_defaults() {
+        let (_, q) = hybrid_query_from_pb(hybrid_request(None, None)).expect("valid");
+        assert_eq!(q.rrf_k.to_bits(), DEFAULT_RRF_K.to_bits());
+        assert_eq!(q.overfetch_factor, DEFAULT_OVERFETCH_FACTOR);
+    }
+
+    #[test]
+    fn hybrid_explicit_values_are_kept() {
+        let (_, q) = hybrid_query_from_pb(hybrid_request(Some(12.5), Some(7))).expect("valid");
+        assert_eq!(q.rrf_k.to_bits(), 12.5_f64.to_bits());
+        assert_eq!(q.overfetch_factor, 7);
+    }
+
+    #[test]
+    fn hybrid_rejects_zero_overfetch_factor() {
+        assert!(hybrid_query_from_pb(hybrid_request(None, Some(0))).is_err());
+    }
+
+    #[test]
+    fn hybrid_rejects_zero_nan_and_negative_rrf_k() {
+        for rrf_k in [0.0_f64, f64::NAN, -1.0] {
+            assert!(
+                hybrid_query_from_pb(hybrid_request(Some(rrf_k), None)).is_err(),
+                "rrf_k {rrf_k} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn hybrid_rejects_infinite_and_negative_zero_rrf_k() {
+        for rrf_k in [f64::INFINITY, f64::NEG_INFINITY, -0.0_f64] {
+            assert!(
+                hybrid_query_from_pb(hybrid_request(Some(rrf_k), None)).is_err(),
+                "rrf_k {rrf_k} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn hybrid_query_to_pb_always_sends_values() {
+        let query = HybridQuery {
+            vector: None,
+            text: Some("hello".into()),
+            k: 5,
+            filter: None,
+            metric: None,
+            rrf_k: DEFAULT_RRF_K,
+            overfetch_factor: DEFAULT_OVERFETCH_FACTOR,
+        };
+        let req = hybrid_query_to_pb("notes", &query).expect("to pb");
+        assert_eq!(req.rrf_k.map(f64::to_bits), Some(DEFAULT_RRF_K.to_bits()));
+        assert_eq!(
+            req.overfetch_factor,
+            Some(u32::try_from(DEFAULT_OVERFETCH_FACTOR).expect("fits"))
+        );
     }
 }

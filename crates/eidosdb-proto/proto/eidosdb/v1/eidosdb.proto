@@ -16,10 +16,12 @@ enum IndexType {
 }
 
 message HnswParams {
-  uint32 m = 1;
-  uint32 ef_construction = 2;
-  uint32 ef_search = 3;
-  uint64 seed = 4;
+  // Absent fields take the server default. An explicit zero on m,
+  // ef_construction or ef_search is rejected; seed accepts every value.
+  optional uint32 m = 1;
+  optional uint32 ef_construction = 2;
+  optional uint32 ef_search = 3;
+  optional uint64 seed = 4;
 }
 
 message CreateCollectionRequest {
@@ -113,8 +115,10 @@ message SearchHybridRequest {
   uint32 k = 4;
   optional Filter filter = 5;
   optional Metric metric = 6;
-  double rrf_k = 7;
-  uint32 overfetch_factor = 8;
+  // Absent takes the server default. Must be finite and strictly positive.
+  optional double rrf_k = 7;
+  // Absent takes the server default. An explicit zero is rejected.
+  optional uint32 overfetch_factor = 8;
 }
 message Hit {
   // Exactly 16 bytes, same encoding as Point.id.

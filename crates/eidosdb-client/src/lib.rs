@@ -163,10 +163,10 @@ impl EidosClient {
         let dimension = narrow_u32(spec.dimension.get(), "dimension")?;
         let hnsw_params = match spec.hnsw {
             Some(config) => Some(pb::HnswParams {
-                m: narrow_u32(config.m(), "m")?,
-                ef_construction: narrow_u32(config.ef_construction(), "ef_construction")?,
-                ef_search: narrow_u32(config.ef_search(), "ef_search")?,
-                seed: config.seed(),
+                m: Some(narrow_u32(config.m(), "m")?),
+                ef_construction: Some(narrow_u32(config.ef_construction(), "ef_construction")?),
+                ef_search: Some(narrow_u32(config.ef_search(), "ef_search")?),
+                seed: Some(config.seed()),
             }),
             None => None,
         };

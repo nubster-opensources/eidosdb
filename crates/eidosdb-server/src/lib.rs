@@ -5,6 +5,7 @@
 
 pub mod collection_kind;
 pub mod error;
+mod hnsw_params;
 pub mod meta;
 pub mod registry;
 pub mod service;

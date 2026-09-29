@@ -14,14 +14,14 @@ use eidosdb_server::{registry::Registry, service::EidosDbHandler};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 
-/// Starts an in-process server and returns its endpoint plus the `TempDir` that
-/// must be kept alive for the duration of the test.
-async fn spawn_server() -> (String, tempfile::TempDir) {
+/// Starts an in-process server and returns its endpoint, the `TempDir` that
+/// must be kept alive for the duration of the test, and the shared `Registry`.
+async fn spawn_server_with_registry() -> (String, tempfile::TempDir, Arc<Registry>) {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = Arc::new(Registry::open(dir.path().to_path_buf()).expect("registry"));
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
-    let svc = EidosDbServiceServer::new(EidosDbHandler::new(registry));
+    let svc = EidosDbServiceServer::new(EidosDbHandler::new(Arc::clone(&registry)));
     tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(svc)
@@ -29,7 +29,14 @@ async fn spawn_server() -> (String, tempfile::TempDir) {
             .await
             .expect("serve");
     });
-    (format!("http://{addr}"), dir)
+    (format!("http://{addr}"), dir, registry)
+}
+
+/// Starts an in-process server and returns its endpoint plus the `TempDir` that
+/// must be kept alive for the duration of the test.
+async fn spawn_server() -> (String, tempfile::TempDir) {
+    let (endpoint, dir, _registry) = spawn_server_with_registry().await;
+    (endpoint, dir)
 }
 
 /// Creates an HNSW collection of the given dimension via the client.
@@ -254,6 +261,28 @@ async fn delete_by_filter_removes_matching_points() {
             .count,
         1
     );
+}
+
+#[tokio::test]
+async fn seed_zero_reaches_the_server() {
+    use eidosdb_hnsw::HnswConfig;
+
+    let (endpoint, _dir, registry) = spawn_server_with_registry().await;
+    let mut client = EidosClient::connect(endpoint).await.expect("connect");
+    let config = HnswConfig::new(Metric::Cosine, 16, 200, 64, 0).expect("seed 0 is valid");
+    client
+        .create_collection(CollectionSpec {
+            name: "seeded".to_string(),
+            metric: Metric::Cosine,
+            dimension: Dimension::new(3).expect("valid dimension"),
+            index_type: IndexTypeChoice::Hnsw,
+            hnsw: Some(config),
+        })
+        .await
+        .expect("create");
+    let handle = registry.get("seeded").expect("registered");
+    let persisted = eidosdb_server::meta::read_meta(&handle.dir).expect("meta on disk");
+    assert_eq!(persisted.hnsw.expect("hnsw config").seed(), 0);
 }
 
 #[tokio::test]

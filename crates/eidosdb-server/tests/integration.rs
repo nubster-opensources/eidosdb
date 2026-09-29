@@ -33,7 +33,11 @@ use tonic::transport::{Channel, Server};
 /// 6. Connect `EidosDbServiceClient` and return `(client, tempdir)`.
 ///
 /// Reused unchanged by B6 / B7 / B8 / C.
-async fn start_server() -> (EidosDbServiceClient<Channel>, tempfile::TempDir) {
+async fn start_server_with_registry() -> (
+    EidosDbServiceClient<Channel>,
+    tempfile::TempDir,
+    Arc<Registry>,
+) {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = Arc::new(Registry::open(dir.path().to_path_buf()).expect("open registry"));
 
@@ -57,6 +61,11 @@ async fn start_server() -> (EidosDbServiceClient<Channel>, tempfile::TempDir) {
         .await
         .expect("connect");
 
+    (client, dir, registry)
+}
+
+async fn start_server() -> (EidosDbServiceClient<Channel>, tempfile::TempDir) {
+    let (client, dir, _registry) = start_server_with_registry().await;
     (client, dir)
 }
 
@@ -302,15 +311,64 @@ async fn create_hnsw_degree_one_is_invalid_argument() {
             dimension: 3,
             index_type: pb::IndexType::Hnsw as i32,
             hnsw_params: Some(pb::HnswParams {
-                m: 1,
-                ef_construction: 200,
-                ef_search: 64,
-                seed: 42,
+                m: Some(1),
+                ef_construction: Some(200),
+                ef_search: Some(64),
+                seed: Some(42),
             }),
         })
         .await
         .expect_err("m = 1 must be rejected");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+/// Builds a `CreateCollectionRequest` for an HNSW collection with explicit `hnsw_params`.
+fn hnsw_request(name: &str, params: pb::HnswParams) -> pb::CreateCollectionRequest {
+    pb::CreateCollectionRequest {
+        name: name.into(),
+        metric: pb::Metric::Cosine as i32,
+        dimension: 3,
+        index_type: pb::IndexType::Hnsw as i32,
+        hnsw_params: Some(params),
+    }
+}
+
+#[tokio::test]
+async fn create_with_explicit_zero_degree_is_invalid_argument() {
+    let (mut client, _dir) = start_server().await;
+    let err = client
+        .create_collection(hnsw_request(
+            "zero-degree",
+            pb::HnswParams {
+                m: Some(0),
+                ef_construction: None,
+                ef_search: None,
+                seed: None,
+            },
+        ))
+        .await
+        .expect_err("m = 0 must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn create_with_seed_zero_persists_seed_zero() {
+    let (mut client, _dir, registry) = start_server_with_registry().await;
+    client
+        .create_collection(hnsw_request(
+            "seeded",
+            pb::HnswParams {
+                m: None,
+                ef_construction: None,
+                ef_search: None,
+                seed: Some(0),
+            },
+        ))
+        .await
+        .expect("create");
+    let handle = registry.get("seeded").expect("registered");
+    let persisted = eidosdb_server::meta::read_meta(&handle.dir).expect("meta on disk");
+    assert_eq!(persisted.hnsw.expect("hnsw config").seed(), 0);
 }
 
 #[tokio::test]
@@ -721,8 +779,8 @@ async fn search_hybrid_combines_text_and_vector() {
             k: 5,
             filter: None,
             metric: None,
-            rrf_k: 0.0,
-            overfetch_factor: 0,
+            rrf_k: Some(60.0),
+            overfetch_factor: Some(4),
         })
         .await
         .expect("search_hybrid")
@@ -745,8 +803,8 @@ async fn search_hybrid_wrong_vector_dimension_is_invalid_argument() {
             k: 1,
             filter: None,
             metric: None,
-            rrf_k: 0.0,
-            overfetch_factor: 0,
+            rrf_k: Some(60.0),
+            overfetch_factor: Some(4),
         })
         .await
         .expect_err("dim");
