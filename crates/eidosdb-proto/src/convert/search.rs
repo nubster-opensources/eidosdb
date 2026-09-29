@@ -122,6 +122,25 @@ pub fn hits_to_pb(hits: &[SearchHit]) -> pb::SearchResponse {
     }
 }
 
+/// Encodes hybrid search hits into a [`pb::SearchHybridResponse`].
+#[must_use]
+pub fn hybrid_hits_to_pb(hits: &[SearchHit]) -> pb::SearchHybridResponse {
+    pb::SearchHybridResponse {
+        hits: hits.iter().map(hit_to_pb).collect(),
+    }
+}
+
+/// Decodes a [`pb::SearchHybridResponse`] into domain [`SearchHit`]s.
+///
+/// # Errors
+///
+/// Propagates any [`ConversionError`] from decoding an individual hit.
+pub fn hybrid_hits_from_pb(
+    response: pb::SearchHybridResponse,
+) -> Result<Vec<SearchHit>, ConversionError> {
+    response.hits.into_iter().map(hit_from_pb).collect()
+}
+
 /// Encodes a domain [`SearchQuery`] into a [`pb::SearchRequest`] for `collection`.
 ///
 /// # Errors
@@ -172,7 +191,7 @@ pub fn hybrid_query_to_pb(
 ///
 /// # Errors
 ///
-/// Returns [`ConversionError::InvalidUuid`] when the id is not a valid UUID, or a
+/// Returns [`ConversionError::Domain`] when the id is not exactly 16 bytes, or a
 /// payload conversion error when the payload is malformed.
 pub fn hit_from_pb(hit: pb::Hit) -> Result<SearchHit, ConversionError> {
     let id = vector_id_from_pb(&hit.id)?;
@@ -324,7 +343,7 @@ mod tests {
             payload: None,
         };
         let pb_hit = hit_to_pb(&hit);
-        assert_eq!(pb_hit.id, id.as_uuid().to_string());
+        assert_eq!(pb_hit.id, id.as_uuid().as_bytes().to_vec());
         assert!((pb_hit.score - 0.75_f32).abs() < f32::EPSILON);
         assert!(pb_hit.payload.is_none());
     }
@@ -347,8 +366,32 @@ mod tests {
         ];
         let resp = hits_to_pb(&hits);
         assert_eq!(resp.hits.len(), 2);
-        assert_eq!(resp.hits[0].id, id1.as_uuid().to_string());
-        assert_eq!(resp.hits[1].id, id2.as_uuid().to_string());
+        assert_eq!(resp.hits[0].id, id1.as_uuid().as_bytes().to_vec());
+        assert_eq!(resp.hits[1].id, id2.as_uuid().as_bytes().to_vec());
+    }
+
+    #[test]
+    fn hit_with_short_id_is_rejected() {
+        let hit = pb::Hit {
+            id: vec![1_u8; 15],
+            score: 0.5,
+            payload: None,
+        };
+        assert!(hit_from_pb(hit).is_err());
+    }
+
+    #[test]
+    fn hybrid_hits_round_trip_through_their_own_response() {
+        let id = VectorId::new();
+        let hits = vec![SearchHit {
+            id,
+            score: Score::new(0.25),
+            payload: None,
+        }];
+        let response: pb::SearchHybridResponse = hybrid_hits_to_pb(&hits);
+        let back = hybrid_hits_from_pb(response).expect("round trip");
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].id, id);
     }
 
     #[test]

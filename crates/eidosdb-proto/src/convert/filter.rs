@@ -1,8 +1,8 @@
 //! Conversions between protobuf wire types and the domain [`Filter`] AST.
 //!
 //! Covers recursive translation of [`pb::Filter`] to and from
-//! [`eidosdb_query::Filter`], including the `And`/`Or` list nodes,
-//! the `Not` box, and all comparison leaves.
+//! [`eidosdb_query::Filter`], including the `AllOf`/`AnyOf` list nodes,
+//! the `Negation` box, and all comparison leaves.
 
 use crate::convert::payload::{value_from_pb, value_to_pb};
 use crate::error::ConversionError;
@@ -42,7 +42,7 @@ pub fn filter_to_pb(filter: &Filter) -> pb::Filter {
             field: field.clone(),
             value: Some(value_to_pb(value)),
         })),
-        Filter::In(field, values) => Some(pb::filter::Kind::In(pb::InFilter {
+        Filter::In(field, values) => Some(pb::filter::Kind::IsIn(pb::InFilter {
             field: field.clone(),
             values: values.iter().map(value_to_pb).collect(),
         })),
@@ -51,13 +51,13 @@ pub fn filter_to_pb(filter: &Filter) -> pb::Filter {
             value: Some(value_to_pb(value)),
         })),
         Filter::Exists(field) => Some(pb::filter::Kind::Exists(field.clone())),
-        Filter::And(filters) => Some(pb::filter::Kind::And(pb::FilterList {
+        Filter::And(filters) => Some(pb::filter::Kind::AllOf(pb::FilterList {
             filters: filters.iter().map(filter_to_pb).collect(),
         })),
-        Filter::Or(filters) => Some(pb::filter::Kind::Or(pb::FilterList {
+        Filter::Or(filters) => Some(pb::filter::Kind::AnyOf(pb::FilterList {
             filters: filters.iter().map(filter_to_pb).collect(),
         })),
-        Filter::Not(inner) => Some(pb::filter::Kind::Not(Box::new(filter_to_pb(inner)))),
+        Filter::Not(inner) => Some(pb::filter::Kind::Negation(Box::new(filter_to_pb(inner)))),
         _ => None,
     };
     pb::Filter { kind }
@@ -94,7 +94,7 @@ pub fn filter_from_pb(filter: pb::Filter) -> Result<Filter, ConversionError> {
             let (field, value) = comparison_from_pb(c)?;
             Ok(Filter::Gte(field, value))
         }
-        Some(pb::filter::Kind::In(inf)) => {
+        Some(pb::filter::Kind::IsIn(inf)) => {
             let field = inf.field;
             let values: Result<Vec<Value>, ConversionError> =
                 inf.values.into_iter().map(value_from_pb).collect();
@@ -108,17 +108,17 @@ pub fn filter_from_pb(filter: pb::Filter) -> Result<Filter, ConversionError> {
             Ok(Filter::Contains(cf.field, value))
         }
         Some(pb::filter::Kind::Exists(field)) => Ok(Filter::Exists(field)),
-        Some(pb::filter::Kind::And(list)) => {
+        Some(pb::filter::Kind::AllOf(list)) => {
             let filters: Result<Vec<Filter>, ConversionError> =
                 list.filters.into_iter().map(filter_from_pb).collect();
             Ok(Filter::And(filters?))
         }
-        Some(pb::filter::Kind::Or(list)) => {
+        Some(pb::filter::Kind::AnyOf(list)) => {
             let filters: Result<Vec<Filter>, ConversionError> =
                 list.filters.into_iter().map(filter_from_pb).collect();
             Ok(Filter::Or(filters?))
         }
-        Some(pb::filter::Kind::Not(inner)) => {
+        Some(pb::filter::Kind::Negation(inner)) => {
             let inner = filter_from_pb(*inner)?;
             Ok(Filter::Not(Box::new(inner)))
         }
@@ -232,5 +232,30 @@ mod tests {
         let or = Filter::Or(vec![]);
         assert_eq!(filter_from_pb(filter_to_pb(&and)).unwrap(), and);
         assert_eq!(filter_from_pb(filter_to_pb(&or)).unwrap(), or);
+    }
+
+    #[test]
+    fn renamed_filter_kinds_round_trip_on_the_wire() {
+        let leaf = Filter::Eq("theme".into(), Value::Text("press".into()));
+        let cases = [
+            Filter::In("theme".into(), vec![Value::Text("press".into())]),
+            Filter::And(vec![leaf.clone()]),
+            Filter::Or(vec![leaf.clone()]),
+            Filter::Not(Box::new(leaf)),
+        ];
+        for filter in cases {
+            let wire = filter_to_pb(&filter);
+            let is_renamed_kind = matches!(
+                wire.kind,
+                Some(
+                    pb::filter::Kind::IsIn(_)
+                        | pb::filter::Kind::AllOf(_)
+                        | pb::filter::Kind::AnyOf(_)
+                        | pb::filter::Kind::Negation(_)
+                )
+            );
+            assert!(is_renamed_kind, "{filter:?} must use a renamed wire kind");
+            assert_eq!(filter_from_pb(wire).expect("round trip"), filter);
+        }
     }
 }

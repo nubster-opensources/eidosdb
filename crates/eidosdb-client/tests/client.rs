@@ -8,9 +8,9 @@ use std::sync::Arc;
 use eidosdb_client::{CollectionSpec, EidosClient, PointInput};
 use eidosdb_core::{Dimension, Embedding, Metric, VectorId};
 use eidosdb_proto::convert::IndexTypeChoice;
-use eidosdb_proto::pb::eidos_db_server::EidosDbServer;
+use eidosdb_proto::pb::eidos_db_service_server::EidosDbServiceServer;
 use eidosdb_query::{FieldValue, Filter, Payload, SearchQuery, Value};
-use eidosdb_server::{registry::Registry, service::EidosDbService};
+use eidosdb_server::{registry::Registry, service::EidosDbHandler};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 
@@ -21,7 +21,7 @@ async fn spawn_server() -> (String, tempfile::TempDir) {
     let registry = Arc::new(Registry::open(dir.path().to_path_buf()).expect("registry"));
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
-    let svc = EidosDbServer::new(EidosDbService::new(registry));
+    let svc = EidosDbServiceServer::new(EidosDbHandler::new(registry));
     tokio::spawn(async move {
         tonic::transport::Server::builder()
             .add_service(svc)

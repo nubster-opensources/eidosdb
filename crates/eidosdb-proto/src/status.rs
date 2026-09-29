@@ -61,9 +61,9 @@ pub fn query_error_to_status(error: &QueryError) -> Status {
 #[must_use]
 pub fn conversion_error_to_status(error: &ConversionError) -> Status {
     match error {
-        ConversionError::InvalidUuid(_)
-        | ConversionError::MissingField(_)
-        | ConversionError::Domain(_) => Status::invalid_argument(error.to_string()),
+        ConversionError::MissingField(_) | ConversionError::Domain(_) => {
+            Status::invalid_argument(error.to_string())
+        }
     }
 }
 
@@ -205,15 +205,6 @@ mod tests {
     }
 
     // --- conversion_error_to_status ---
-
-    #[test]
-    fn conversion_invalid_uuid_maps_to_invalid_argument() {
-        let err = ConversionError::InvalidUuid("not-a-uuid".to_string());
-        assert_eq!(
-            conversion_error_to_status(&err).code(),
-            Code::InvalidArgument
-        );
-    }
 
     #[test]
     fn conversion_missing_field_maps_to_invalid_argument() {

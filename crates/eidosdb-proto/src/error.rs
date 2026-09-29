@@ -6,8 +6,6 @@ use std::fmt;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ConversionError {
-    /// A UUID field could not be parsed.
-    InvalidUuid(String),
     /// A required field was absent or set to the unspecified sentinel value.
     MissingField(&'static str),
     /// The domain layer rejected a value.
@@ -17,7 +15,6 @@ pub enum ConversionError {
 impl fmt::Display for ConversionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConversionError::InvalidUuid(raw) => write!(f, "invalid UUID: {raw}"),
             ConversionError::MissingField(field) => write!(f, "missing required field: {field}"),
             ConversionError::Domain(msg) => write!(f, "domain error: {msg}"),
         }
